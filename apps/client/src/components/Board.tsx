@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useMemo, useRef } from "react";
+import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useTransform } from "framer-motion";
 import { boardBounds, getLegalPlacements, type Card, type Color, type PlacedCard, type PlayerView } from "@tarot/shared";
 import { CardFace } from "./CardFace";
 import { CARD, CELL, COLOR_HEX } from "../theme";
@@ -21,9 +21,18 @@ interface Camera {
   scale: number;
 }
 
+const MIN_SCALE = 0.35;
+const MAX_SCALE = 2.2;
+const CAMERA_SPRING = { type: "spring", stiffness: 260, damping: 32, mass: 0.6 } as const;
+
 export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 1 });
+  // Motion values bypass React re-renders so the world tracks the pointer 1:1 while dragging.
+  const camX = useMotionValue(0);
+  const camY = useMotionValue(0);
+  const camScale = useMotionValue(1);
+  const gridPosition = useMotionTemplate`${camX}px ${camY}px`;
+  const gridSize = useTransform(camScale, (s) => `${CELL * s}px ${CELL * s}px`);
   const drag = useRef<{ startX: number; startY: number; camX: number; camY: number; moved: boolean } | null>(null);
 
   const cards = useMemo(() => Object.values(view.board), [view.board]);
@@ -40,9 +49,17 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
     [view.me, view.opponent],
   );
 
+  const moveCamera = (to: Camera) => {
+    animate(camX, to.x, CAMERA_SPRING);
+    animate(camY, to.y, CAMERA_SPRING);
+    animate(camScale, to.scale, CAMERA_SPRING);
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    drag.current = { startX: e.clientX, startY: e.clientY, camX: camera.x, camY: camera.y, moved: false };
+    camX.stop();
+    camY.stop();
+    drag.current = { startX: e.clientX, startY: e.clientY, camX: camX.get(), camY: camY.get(), moved: false };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
@@ -55,7 +72,8 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
       // capturing only now keeps plain clicks on spots/cards working
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     }
-    setCamera((c) => ({ ...c, x: d.camX + dx, y: d.camY + dy }));
+    camX.set(d.camX + dx);
+    camY.set(d.camY + dy);
   };
   const onPointerUp = () => {
     // keep `moved` around for the click that follows, then clear
@@ -63,7 +81,8 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
   };
   const onWheel = (e: React.WheelEvent) => {
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    setCamera((c) => ({ ...c, scale: Math.min(2.2, Math.max(0.35, c.scale * factor)) }));
+    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, camScale.get() * factor));
+    animate(camScale, next, { type: "spring", stiffness: 400, damping: 40 });
   };
 
   const fitToBoard = () => {
@@ -72,10 +91,10 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
     const b = boardBounds(view.board);
     const w = (b.maxX - b.minX + 1) * CELL + CELL;
     const h = (b.maxY - b.minY + 1) * CELL + CELL;
-    const scale = Math.min(1.4, Math.max(0.35, Math.min(el.clientWidth / w, el.clientHeight / h)));
+    const scale = Math.min(1.4, Math.max(MIN_SCALE, Math.min(el.clientWidth / w, el.clientHeight / h)));
     const cx = ((b.minX + b.maxX) / 2) * CELL;
     const cy = ((b.minY + b.maxY) / 2) * CELL;
-    setCamera({ x: -cx * scale, y: -cy * scale, scale });
+    moveCamera({ x: -cx * scale, y: -cy * scale, scale });
   };
 
   const guardClick = (fn: () => void) => () => {
@@ -93,12 +112,8 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
       onPointerCancel={onPointerUp}
       onWheel={onWheel}
     >
-      <div className="board-grid" style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${CELL * camera.scale}px ${CELL * camera.scale}px` }} />
-      <motion.div
-        className="board-world"
-        animate={{ x: camera.x, y: camera.y, scale: camera.scale }}
-        transition={{ type: "spring", stiffness: 260, damping: 32, mass: 0.6 }}
-      >
+      <motion.div className="board-grid" style={{ backgroundPosition: gridPosition, backgroundSize: gridSize }} />
+      <motion.div className="board-world" style={{ x: camX, y: camY, scale: camScale }}>
         <AnimatePresence>
           {cards.map((placed) => (
             <BoardCard
@@ -134,7 +149,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
         <button className="ghost" onClick={fitToBoard} title="Fit board to screen">
           ⤢ Fit
         </button>
-        <button className="ghost" onClick={() => setCamera({ x: 0, y: 0, scale: 1 })} title="Reset view">
+        <button className="ghost" onClick={() => moveCamera({ x: 0, y: 0, scale: 1 })} title="Reset view">
           ◎ Reset
         </button>
       </div>
