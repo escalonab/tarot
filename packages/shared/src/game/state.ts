@@ -1,12 +1,11 @@
 import { type Card, type Color, type GameConfig, DEFAULT_CONFIG, buildDeck } from "./cards.js";
 import {
   type Board,
-  type PlacedCard,
-  countExposedByColor,
   hasAnyLegalPlacement,
   isLegalPlacement,
   placeCard,
   scoreForColor,
+  scoresByColor,
 } from "./board.js";
 import { createRng, shuffle } from "../rng.js";
 
@@ -40,7 +39,7 @@ export type GameAction =
 
 export type GameEvent =
   | { type: "colorChosen"; playerId: string; color: Color }
-  | { type: "roundStarted"; firstPlayerId: string; starter: PlacedCard }
+  | { type: "roundStarted"; firstPlayerId: string }
   | { type: "cardPlaced"; playerId: string; card: Card; x: number; y: number }
   | { type: "cardDrawn"; playerId: string }
   | { type: "turnSkipped"; playerId: string }
@@ -76,7 +75,7 @@ export function createGame(
   seed: number,
   config: GameConfig = DEFAULT_CONFIG,
 ): GameState {
-  const deck = shuffle(buildDeck(config), createRng(seed));
+  const deck = shuffle(buildDeck(), createRng(seed));
   return {
     config,
     seed,
@@ -136,31 +135,25 @@ function nobodyCanMove(state: GameState): boolean {
 }
 
 /**
- * Hands the turn to `next`. If they cannot move, they still draw and the turn passes on.
- * Terminates because every skip consumes a deck card or ends the round.
+ * Hands the turn to `next`. A player with no legal move passes without drawing; if neither
+ * player can move the round is over, since nothing could ever change.
  */
 function advanceTurn(state: GameState, next: PlayerState, events: GameEvent[]): void {
+  if (allCardsPlayed(state) || nobodyCanMove(state)) {
+    finishRound(state, events);
+    return;
+  }
   let current = next;
-  for (;;) {
-    if (allCardsPlayed(state) || (state.deck.length === 0 && nobodyCanMove(state))) {
-      finishRound(state, events);
-      return;
-    }
-    if (hasAnyLegalPlacement(state.board, current.hand)) {
-      state.turn = current.id;
-      state.turnNumber++;
-      events.push({ type: "turnChanged", playerId: current.id });
-      return;
-    }
+  if (!hasAnyLegalPlacement(state.board, current.hand)) {
     events.push({ type: "turnSkipped", playerId: current.id });
-    drawCard(state, current, events);
     current = getOpponent(state, current.id);
   }
+  state.turn = current.id;
+  state.turnNumber++;
+  events.push({ type: "turnChanged", playerId: current.id });
 }
 
 function startRound(state: GameState, events: GameEvent[]): void {
-  const starter = state.deck.shift()!;
-  state.board = placeCard(state.board, starter, 0, 0, null);
   for (let i = 0; i < state.config.handSize; i++) {
     for (const p of state.players) {
       const card = state.deck.shift();
@@ -170,7 +163,7 @@ function startRound(state: GameState, events: GameEvent[]): void {
   const firstIndex = createRng(state.seed ^ 0x5eed)() < 0.5 ? 0 : 1;
   const first = state.players[firstIndex]!;
   state.phase = "playing";
-  events.push({ type: "roundStarted", firstPlayerId: first.id, starter: state.board["0,0"]! });
+  events.push({ type: "roundStarted", firstPlayerId: first.id });
   advanceTurn(state, first, events);
 }
 
@@ -218,6 +211,7 @@ export interface PlayerView {
   deckCount: number;
   scores: Record<string, number>;
   winnerId: string | null;
+  /** Live score per colour, including colours nobody picked. */
   exposed: Record<Color, number>;
   me: { id: string; name: string; color: Color | null; hand: Card[] };
   opponent: { id: string; name: string; color: Color | null; handCount: number };
@@ -242,7 +236,7 @@ export function toPlayerView(state: GameState, playerId: string): PlayerView {
     deckCount: state.deck.length,
     scores: live,
     winnerId: state.winnerId,
-    exposed: countExposedByColor(state.board, state.config.colors),
+    exposed: scoresByColor(state.board, state.config.colors),
     me: { id: me.id, name: me.name, color: me.color, hand: me.hand },
     opponent: { id: opp.id, name: opp.name, color: opp.color, handCount: opp.hand.length },
   };

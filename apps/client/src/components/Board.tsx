@@ -32,8 +32,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
     [view.board, selectedCard, canPlay],
   );
   const ownerColor = useCallback(
-    (playerId: string | null): Color | null => {
-      if (!playerId) return null;
+    (playerId: string): Color | null => {
       if (playerId === view.me.id) return view.me.color;
       if (playerId === view.opponent.id) return view.opponent.color;
       return null;
@@ -108,9 +107,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced 
               ownerColor={ownerColor(placed.playerId)}
               isLast={!!lastPlaced && lastPlaced.x === placed.x && lastPlaced.y === placed.y}
               hover={hover}
-              ownerName={
-                placed.playerId === view.me.id ? "You" : placed.playerId === view.opponent.id ? view.opponent.name : "Starter"
-              }
+              ownerName={placed.playerId === view.me.id ? "You" : view.opponent.name}
             />
           ))}
         </AnimatePresence>

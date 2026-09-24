@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { GameError, applyAction, createGame, toPlayerView, type GameState } from "./state.js";
 import { getLegalPlacements } from "./board.js";
-import { DEFAULT_CONFIG } from "./cards.js";
+import { DECK_SIZE, buildDeck, findCard } from "./cards.js";
 
 const P1 = { id: "p1", name: "Alice" };
 const P2 = { id: "p2", name: "Bob" };
+const DECK = buildDeck();
+const pick = (id: string) => findCard(DECK, id)!;
 
 function startedGame(seed = 1): GameState {
   let s = createGame([P1, P2], seed);
@@ -36,10 +38,11 @@ function playToEnd(s: GameState): { state: GameState; turns: number } {
 }
 
 describe("colour selection", () => {
-  it("starts in the choosing phase with a full deck and empty hands", () => {
+  it("starts in the choosing phase with the full physical deck and empty hands", () => {
     const s = createGame([P1, P2], 42);
     expect(s.phase).toBe("choosing");
-    expect(s.deck).toHaveLength(DEFAULT_CONFIG.deckSize);
+    expect(s.deck).toHaveLength(DECK_SIZE);
+    expect(new Set(s.deck.map((c) => c.id))).toEqual(new Set(DECK.map((c) => c.id)));
     expect(s.players.every((p) => p.hand.length === 0)).toBe(true);
   });
 
@@ -48,14 +51,13 @@ describe("colour selection", () => {
     expect(() => applyAction(s, "p2", { type: "chooseColor", color: "red" })).toThrow(GameError);
   });
 
-  it("starts the round once both players have chosen", () => {
+  it("deals five cards each onto an empty table once both players have chosen", () => {
     const s = startedGame();
     expect(s.phase).toBe("playing");
-    expect(Object.keys(s.board)).toEqual(["0,0"]);
-    expect(s.board["0,0"]!.playerId).toBeNull();
+    expect(Object.keys(s.board)).toEqual([]);
     expect(s.players[0].hand).toHaveLength(5);
     expect(s.players[1].hand).toHaveLength(5);
-    expect(s.deck).toHaveLength(DEFAULT_CONFIG.deckSize - 1 - 10);
+    expect(s.deck).toHaveLength(DECK_SIZE - 10);
     expect(s.turn).not.toBeNull();
   });
 
@@ -77,13 +79,21 @@ describe("placing cards", () => {
 
   it("rejects cards not in hand and illegal spots", () => {
     const s = startedGame();
-    expect(() => applyAction(s, s.turn!, { type: "placeCard", cardId: "nope", x: 1, y: 0 })).toThrow(
+    expect(() => applyAction(s, s.turn!, { type: "placeCard", cardId: "nope", x: 0, y: 0 })).toThrow(
       /CARD_NOT_IN_HAND/,
     );
     const me = s.players.find((p) => p.id === s.turn)!;
-    expect(() => applyAction(s, me.id, { type: "placeCard", cardId: me.hand[0]!.id, x: 9, y: 9 })).toThrow(
+    expect(() => applyAction(s, me.id, { type: "placeCard", cardId: me.hand[0]!.id, x: 1, y: 0 })).toThrow(
       /ILLEGAL_PLACEMENT/,
     );
+  });
+
+  it("the first card may be any card, only at the origin", () => {
+    const s = startedGame();
+    const me = s.players.find((p) => p.id === s.turn)!;
+    for (const c of me.hand) expect(getLegalPlacements(s.board, c)).toEqual([{ x: 0, y: 0 }]);
+    const { state } = applyAction(s, me.id, { type: "placeCard", cardId: me.hand[0]!.id, x: 0, y: 0 });
+    expect(state.board["0,0"]).toMatchObject({ card: me.hand[0], playerId: me.id });
   });
 
   it("moves the card to the board, draws a replacement and passes the turn", () => {
@@ -111,6 +121,41 @@ describe("placing cards", () => {
   });
 });
 
+describe("passing", () => {
+  /** Turn player holds Millionaire (all blue) + Slave (blue with one green); opponent holds Knight (all yellow). */
+  function rigged(deckIds: string[]): { s: GameState; me: string; opp: string } {
+    const s = startedGame();
+    const me = s.players.find((p) => p.id === s.turn)!;
+    const opp = s.players.find((p) => p.id !== s.turn)!;
+    me.hand = [pick("c1"), pick("c23")];
+    opp.hand = [pick("c2")];
+    s.deck = deckIds.map(pick);
+    return { s, me: me.id, opp: opp.id };
+  }
+
+  it("a player without a legal move passes without drawing", () => {
+    const { s, me, opp } = rigged(["c4", "c5"]);
+    const { state, events } = applyAction(s, me, { type: "placeCard", cardId: "c1", x: 0, y: 0 });
+    expect(events.map((e) => e.type)).toEqual(["cardPlaced", "cardDrawn", "turnSkipped", "turnChanged"]);
+    expect(state.turn).toBe(me);
+    expect(state.players.find((p) => p.id === opp)!.hand.map((c) => c.id)).toEqual(["c2"]);
+    expect(state.deck.map((c) => c.id)).toEqual(["c5"]);
+  });
+
+  it("ends the round when nobody can move, even with cards left in the deck", () => {
+    const { s, me } = rigged(["c3", "c4"]);
+    const st = s.players.find((p) => p.id === me)!;
+    st.hand = [pick("c1")];
+    const { state, events } = applyAction(s, me, { type: "placeCard", cardId: "c1", x: 0, y: 0 });
+    expect(events.map((e) => e.type)).toEqual(["cardPlaced", "cardDrawn", "roundEnded"]);
+    expect(state.phase).toBe("finished");
+    expect(state.deck).toHaveLength(1);
+    const blue = state.players.find((p) => p.color === "blue")!;
+    expect(state.scores[blue.id]).toBe(4);
+    expect(state.winnerId).toBe(blue.id);
+  });
+});
+
 describe("full rounds", () => {
   it.each([1, 2, 3, 5, 8, 13, 21, 34])("seed %i plays to completion with consistent bookkeeping", (seed) => {
     const { state } = playToEnd(startedGame(seed));
@@ -118,16 +163,13 @@ describe("full rounds", () => {
     expect(state.turn).toBeNull();
     const onBoard = Object.keys(state.board).length;
     const inHands = state.players.reduce((n, p) => n + p.hand.length, 0);
-    expect(onBoard + inHands + state.deck.length).toBe(DEFAULT_CONFIG.deckSize);
+    expect(onBoard + inHands + state.deck.length).toBe(DECK_SIZE);
     const [a, b] = state.players;
     const sa = state.scores[a.id]!;
     const sb = state.scores[b.id]!;
     expect(state.winnerId).toBe(sa === sb ? null : sa > sb ? a.id : b.id);
     // if cards are left over, nobody could have played them
-    if (inHands > 0) {
-      expect(state.deck).toHaveLength(0);
-      for (const p of state.players) for (const c of p.hand) expect(getLegalPlacements(state.board, c)).toEqual([]);
-    }
+    for (const p of state.players) for (const c of p.hand) expect(getLegalPlacements(state.board, c)).toEqual([]);
   });
 
   it("emits roundEnded exactly once", () => {

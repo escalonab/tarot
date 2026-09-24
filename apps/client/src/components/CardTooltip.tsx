@@ -31,6 +31,7 @@ export function useCardHover(): { state: HoverState | null; handlers: HoverHandl
 }
 
 const SIDE_NAMES = ["Top", "Right", "Bottom", "Left"];
+const MARK_INFO = { star: "Star \u2014 3 points per edge", crown: "Crown \u2014 5 points per edge" } as const;
 
 export function CardTooltip({ state }: { state: HoverState | null }) {
   const flipY = state ? state.y > window.innerHeight * 0.6 : false;
@@ -55,8 +56,9 @@ export function CardTooltip({ state }: { state: HoverState | null }) {
           >
             <CardFace card={state.card} size={72} />
             <div className="tooltip-body">
-              <div className="tooltip-title">Card {state.card.id.replace(/^c/, "")}</div>
+              <div className="tooltip-title">{state.card.name}</div>
               <div className="tooltip-meta">{state.meta}</div>
+              {state.card.mark && <div className="tooltip-meta">{MARK_INFO[state.card.mark]}</div>}
               <ul>
                 {state.card.edges.map((c, i) => (
                   <li key={i}>

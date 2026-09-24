@@ -1,4 +1,14 @@
-import { type Card, type Color, type Side, SIDES, SIDE_DELTA, oppositeSide } from "./cards.js";
+import {
+  type Card,
+  type Color,
+  type EdgeColor,
+  type Side,
+  SIDES,
+  SIDE_DELTA,
+  isPlayerColor,
+  markValue,
+  oppositeSide,
+} from "./cards.js";
 
 export interface Position {
   x: number;
@@ -7,8 +17,7 @@ export interface Position {
 
 export interface PlacedCard extends Position {
   card: Card;
-  /** null for the neutral starter card */
-  playerId: string | null;
+  playerId: string;
 }
 
 /** Sparse grid keyed by "x,y". Plain object so it serialises as JSON. */
@@ -31,7 +40,13 @@ export function isEmptyBoard(board: Board): boolean {
   return true;
 }
 
-/** True when `card` can be put at (x,y): cell empty, touches ≥1 card, and every touching edge matches. */
+/** Two facing edges may touch when neither is black and they are equal or one is white. */
+export function edgesFit(a: EdgeColor, b: EdgeColor): boolean {
+  if (a === "black" || b === "black") return false;
+  return a === "white" || b === "white" || a === b;
+}
+
+/** True when `card` can be put at (x,y): cell empty, touches ≥1 card, and every touching edge fits. */
 export function isLegalPlacement(board: Board, card: Card, x: number, y: number): boolean {
   if (isEmptyBoard(board)) return x === 0 && y === 0;
   if (getAt(board, x, y)) return false;
@@ -41,7 +56,7 @@ export function isLegalPlacement(board: Board, card: Card, x: number, y: number)
     const neighbour = getAt(board, x + dx, y + dy);
     if (!neighbour) continue;
     touches++;
-    if (neighbour.card.edges[oppositeSide(side)] !== card.edges[side]) return false;
+    if (!edgesFit(neighbour.card.edges[oppositeSide(side)], card.edges[side])) return false;
   }
   return touches > 0;
 }
@@ -70,13 +85,13 @@ export function hasAnyLegalPlacement(board: Board, hand: readonly Card[]): boole
   return hand.some((card) => getLegalPlacements(board, card).length > 0);
 }
 
-export function placeCard(board: Board, card: Card, x: number, y: number, playerId: string | null): Board {
+export function placeCard(board: Board, card: Card, x: number, y: number, playerId: string): Board {
   return { ...board, [posKey(x, y)]: { card, x, y, playerId } };
 }
 
 export interface ExposedEdge extends Position {
   side: Side;
-  color: Color;
+  color: EdgeColor;
 }
 
 /** Every card edge that has no neighbour — these are what score. */
@@ -93,16 +108,46 @@ export function getExposedEdges(board: Board): ExposedEdge[] {
   return out;
 }
 
-export function countExposedByColor(board: Board, colors: readonly Color[]): Record<Color, number> {
-  const counts = Object.fromEntries(colors.map((c) => [c, 0])) as Record<Color, number>;
-  for (const edge of getExposedEdges(board)) counts[edge.color] = (counts[edge.color] ?? 0) + 1;
-  return counts;
+export interface EdgeScore {
+  color: Color;
+  points: number;
+}
+
+/**
+ * Who an exposed edge scores for and how much. White scores for nobody. Black scores for the
+ * colour opposite it on the same card; if that is white (or black, on the Horsemen) it takes the
+ * colour and value of the edge touching this card's white side, if any.
+ */
+export function resolveEdgeScore(board: Board, placed: PlacedCard, side: Side): EdgeScore | null {
+  const { card } = placed;
+  const edge = card.edges[side];
+  if (edge === "white") return null;
+  if (isPlayerColor(edge)) return { color: edge, points: markValue(card) };
+
+  const opposite = card.edges[oppositeSide(side)];
+  if (isPlayerColor(opposite)) return { color: opposite, points: markValue(card) };
+
+  const whiteSide = SIDES.find((s) => card.edges[s] === "white");
+  if (whiteSide === undefined) return null;
+  const { dx, dy } = SIDE_DELTA[whiteSide];
+  const neighbour = getAt(board, placed.x + dx, placed.y + dy);
+  if (!neighbour) return null;
+  const facing = neighbour.card.edges[oppositeSide(whiteSide)];
+  if (!isPlayerColor(facing)) return null;
+  return { color: facing, points: markValue(neighbour.card) };
+}
+
+export function scoresByColor(board: Board, colors: readonly Color[]): Record<Color, number> {
+  const scores = Object.fromEntries(colors.map((c) => [c, 0])) as Record<Color, number>;
+  for (const edge of getExposedEdges(board)) {
+    const hit = resolveEdgeScore(board, board[posKey(edge.x, edge.y)]!, edge.side);
+    if (hit && hit.color in scores) scores[hit.color] += hit.points;
+  }
+  return scores;
 }
 
 export function scoreForColor(board: Board, color: Color): number {
-  let n = 0;
-  for (const edge of getExposedEdges(board)) if (edge.color === color) n++;
-  return n;
+  return scoresByColor(board, [color])[color];
 }
 
 export interface Bounds {

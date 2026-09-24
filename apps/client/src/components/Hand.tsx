@@ -43,7 +43,7 @@ export function Hand({ hand, board, selectedId, canPlay, onSelect, hover }: Prop
               onMouseMove={hover.onMove}
               onMouseLeave={hover.onLeave}
               aria-pressed={selected}
-              aria-label={`Card ${card.id}`}
+              aria-label={card.name}
             >
               <CardFace card={card} size={HAND_CARD} />
               {canPlay && spots > 0 && <span className="hand-badge">{spots}</span>}

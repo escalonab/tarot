@@ -15,7 +15,10 @@ export function ColorPicker({ colors, mine, taken, opponentName, onPick }: Props
     <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div className="panel" initial={{ y: 30, scale: 0.96 }} animate={{ y: 0, scale: 1 }}>
         <h2>Pick your colour</h2>
-        <p className="muted">You score one point for every exposed edge of your colour when the round ends.</p>
+        <p className="muted">
+          Exposed edges of your colour score when the round ends: 1 point each, 3 on star cards, 5 on the crown. Black edges
+          score for the colour opposite them; white never scores.
+        </p>
         <div className="color-grid">
           {colors.map((c) => {
             const isTaken = taken === c;

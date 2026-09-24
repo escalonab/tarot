@@ -1,12 +1,15 @@
 import { z } from "zod";
-import { COLORS } from "./game/cards.js";
+import { COLORS, EDGE_COLORS } from "./game/cards.js";
 import type { GameEvent, PlayerView } from "./game/state.js";
 
 export const ColorSchema = z.enum(COLORS);
+export const EdgeColorSchema = z.enum(EDGE_COLORS);
 
 export const CardSchema = z.object({
   id: z.string(),
-  edges: z.tuple([ColorSchema, ColorSchema, ColorSchema, ColorSchema]),
+  name: z.string(),
+  edges: z.tuple([EdgeColorSchema, EdgeColorSchema, EdgeColorSchema, EdgeColorSchema]),
+  mark: z.enum(["star", "crown"]).nullable(),
 });
 
 export const GameActionSchema = z.discriminatedUnion("type", [

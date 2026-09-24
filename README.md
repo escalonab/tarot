@@ -18,13 +18,20 @@ the opponent's card count.
 
 ## Rules (current)
 
-- 5 colours, 50 unique cards, fixed orientation (no rotation).
-- Round starts with a neutral starter card at the origin; each player gets 5 cards.
+Full text in `resources/rules.md`; the deck is listed in `resources/cards.md`.
+
+- 4 player colours (green, red, blue, yellow); card edges may also be white or black.
+- Fixed deck of 68 named cards, fixed orientation (no rotation). Each player gets 5 cards.
 - Each player picks a distinct colour before the round starts.
-- On your turn place one card where **all** touching edges match, then draw one.
-- No legal move → turn is skipped, you still draw.
-- Round ends when deck and hands are empty, or nobody can move and the deck is empty.
-- Score = exposed edges of your colour.
+- The first player opens by placing any card at the origin; afterwards a card must touch at
+  least one card and every touching edge must match. White matches anything; nothing may
+  ever touch a black edge.
+- After placing, draw one. No legal move → you pass **without** drawing. Playing is mandatory.
+- Round ends when all cards are played, or when neither player can move.
+- Score = exposed edges of your colour: 1 point each, 3 on star cards, 5 on the crown.
+  White scores nothing. Black scores for the colour opposite it on the same card; if that is
+  white (or black, on the four Horsemen) it takes the colour and value of the edge touching
+  the card's white side, if any.
 
 ## Getting started
 

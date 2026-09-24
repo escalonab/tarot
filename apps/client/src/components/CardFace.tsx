@@ -16,7 +16,9 @@ const TRIANGLES = [
   "2,98 2,2 50,50", // left
 ];
 
-/** Pure visual of a card: four coloured triangles meeting in the middle. */
+const MARK_GLYPH = { star: "\u2605", crown: "\u265B" } as const;
+
+/** Pure visual of a card: four coloured triangles with a placeholder name label where the artwork goes. */
 export function CardFace({ card, size = 88, exposedSides, className }: Props) {
   return (
     <svg
@@ -25,7 +27,7 @@ export function CardFace({ card, size = 88, exposedSides, className }: Props) {
       height={size}
       viewBox="0 0 100 100"
       role="img"
-      aria-label={`Card ${card.id}: ${card.edges.join(", ")}`}
+      aria-label={`${card.name}${card.mark ? ` (${card.mark})` : ""}: ${card.edges.join(", ")}`}
     >
       <defs>
         <clipPath id={`clip-${card.id}`}>
@@ -38,14 +40,24 @@ export function CardFace({ card, size = 88, exposedSides, className }: Props) {
             key={i}
             points={TRIANGLES[i]}
             fill={COLOR_HEX[color]}
+            stroke="rgba(0,0,0,0.25)"
+            strokeWidth="0.6"
             opacity={exposedSides && !exposedSides[i] ? 0.55 : 1}
           />
         ))}
       </g>
       <rect x="2" y="2" width="96" height="96" rx="10" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" />
-      <circle cx="50" cy="50" r="11" fill="#12131a" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" />
-      <text x="50" y="54" textAnchor="middle" fontSize="11" fontWeight="600" fill="#e8e9f0">
-        {card.id.replace(/^c/, "")}
+      {card.mark && (
+        <>
+          <circle cx="50" cy="27" r="9" fill="#12131a" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" />
+          <text x="50" y="31" textAnchor="middle" fontSize="11" fill={card.mark === "crown" ? "#f5c432" : "#e8e9f0"}>
+            {MARK_GLYPH[card.mark]}
+          </text>
+        </>
+      )}
+      <rect x="10" y="40" width="80" height="20" rx="6" fill="#12131a" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" />
+      <text x="50" y="54" textAnchor="middle" fontSize="10" fontWeight="600" fill="#e8e9f0">
+        {card.name}
       </text>
     </svg>
   );
