@@ -1,64 +1,54 @@
 import type { Card } from "@tarot/shared";
-import { COLOR_HEX } from "../theme";
+import { CARD_ASPECT, CARD_IMAGE_SET } from "../theme";
 
 interface Props {
   card: Card;
-  size?: number;
-  /** Which sides are currently exposed (scoring). Drawn with a glow. */
+  /** Rendered width in px; the height follows the artwork aspect. */
+  width?: number;
+  /** Which sides are currently exposed (scoring). Non-scoring edges are dimmed. */
   exposedSides?: readonly boolean[];
   className?: string;
 }
 
-const TRIANGLES = [
-  "2,2 98,2 50,50", // top
-  "98,2 98,98 50,50", // right
-  "98,98 2,98 50,50", // bottom
-  "2,98 2,2 50,50", // left
+const VB_W = 100;
+const VB_H = VB_W / CARD_ASPECT;
+const RADIUS = 5;
+const BAND = 14;
+
+// one trapezoid per side (top, right, bottom, left) covering the edge strip where the semicircle sits
+const EDGE_BANDS = [
+  `0,0 ${VB_W},0 ${VB_W - BAND},${BAND} ${BAND},${BAND}`,
+  `${VB_W},0 ${VB_W},${VB_H} ${VB_W - BAND},${VB_H - BAND} ${VB_W - BAND},${BAND}`,
+  `${VB_W},${VB_H} 0,${VB_H} ${BAND},${VB_H - BAND} ${VB_W - BAND},${VB_H - BAND}`,
+  `0,${VB_H} 0,0 ${BAND},${BAND} ${BAND},${VB_H - BAND}`,
 ];
 
-const MARK_GLYPH = { star: "\u2605", crown: "\u265B" } as const;
+/** Card ids are `c<number>`; the artwork file is `<number>.jpg`. */
+function cardImageUrl(card: Card): string {
+  return `${import.meta.env.BASE_URL}${CARD_IMAGE_SET}/${card.id.slice(1)}.jpg`;
+}
 
-/** Pure visual of a card: four coloured triangles with a placeholder name label where the artwork goes. */
-export function CardFace({ card, size = 88, exposedSides, className }: Props) {
+/** Pure visual of a card: its artwork, with non-scoring edges dimmed when `exposedSides` is given. */
+export function CardFace({ card, width = 88, exposedSides, className }: Props) {
   return (
     <svg
       className={`card-face ${className ?? ""}`}
-      width={size}
-      height={size}
-      viewBox="0 0 100 100"
+      width={width}
+      height={width / CARD_ASPECT}
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
       role="img"
       aria-label={`${card.name}${card.mark ? ` (${card.mark})` : ""}: ${card.edges.join(", ")}`}
     >
       <defs>
         <clipPath id={`clip-${card.id}`}>
-          <rect x="2" y="2" width="96" height="96" rx="10" />
+          <rect width={VB_W} height={VB_H} rx={RADIUS} />
         </clipPath>
       </defs>
       <g clipPath={`url(#clip-${card.id})`}>
-        {card.edges.map((color, i) => (
-          <polygon
-            key={i}
-            points={TRIANGLES[i]}
-            fill={COLOR_HEX[color]}
-            stroke="rgba(0,0,0,0.25)"
-            strokeWidth="0.6"
-            opacity={exposedSides && !exposedSides[i] ? 0.55 : 1}
-          />
-        ))}
+        <image href={cardImageUrl(card)} width={VB_W} height={VB_H} preserveAspectRatio="none" />
+        {exposedSides?.map((exposed, i) => !exposed && <polygon key={i} points={EDGE_BANDS[i]} fill="#0b0c12" opacity={0.6} />)}
       </g>
-      <rect x="2" y="2" width="96" height="96" rx="10" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" />
-      {card.mark && (
-        <>
-          <circle cx="50" cy="27" r="9" fill="#12131a" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" />
-          <text x="50" y="31" textAnchor="middle" fontSize="11" fill={card.mark === "crown" ? "#f5c432" : "#e8e9f0"}>
-            {MARK_GLYPH[card.mark]}
-          </text>
-        </>
-      )}
-      <rect x="10" y="40" width="80" height="20" rx="6" fill="#12131a" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" />
-      <text x="50" y="54" textAnchor="middle" fontSize="10" fontWeight="600" fill="#e8e9f0">
-        {card.name}
-      </text>
+      <rect width={VB_W} height={VB_H} rx={RADIUS} fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="1.5" />
     </svg>
   );
 }

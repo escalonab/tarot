@@ -18,6 +18,14 @@ export const COLOR_LABEL: Record<EdgeColor, string> = {
   black: "Black",
 };
 
-/** Board cell size in CSS px at zoom 1. Cards fill the cell minus a small gap. */
-export const CELL = 96;
-export const CARD = 88;
+/** Folder under public/ with the card artwork (one file per card number); swap it to change the artwork variant. */
+export const CARD_IMAGE_SET = "cards_original";
+/** Width / height of the processed card artwork. */
+export const CARD_ASPECT = 600 / 843;
+
+/** Board card size in CSS px at zoom 1; a cell is the card plus a small gap. */
+export const CARD_W = 100;
+export const CARD_H = Math.round(CARD_W / CARD_ASPECT);
+const GAP = 8;
+export const CELL_W = CARD_W + GAP;
+export const CELL_H = CARD_H + GAP;

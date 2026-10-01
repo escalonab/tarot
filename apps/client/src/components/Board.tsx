@@ -12,7 +12,7 @@ import {
   type ScoringEdge,
 } from "@tarot/shared";
 import { CardFace } from "./CardFace";
-import { CARD, CELL, COLOR_HEX } from "../theme";
+import { CARD_H, CARD_W, CELL_H, CELL_W, COLOR_HEX } from "../theme";
 import type { HoverHandlers } from "./CardTooltip";
 
 export interface ScoreBreakdown {
@@ -50,7 +50,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
   const camY = useMotionValue(0);
   const camScale = useMotionValue(1);
   const gridPosition = useMotionTemplate`${camX}px ${camY}px`;
-  const gridSize = useTransform(camScale, (s) => `${CELL * s}px ${CELL * s}px`);
+  const gridSize = useTransform(camScale, (s) => `${CELL_W * s}px ${CELL_H * s}px`);
   const drag = useRef<{ startX: number; startY: number; camX: number; camY: number; moved: boolean } | null>(null);
 
   const cards = useMemo(() => Object.values(view.board), [view.board]);
@@ -119,11 +119,11 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
     const el = containerRef.current;
     if (!el) return;
     const b = boardBounds(view.board);
-    const w = (b.maxX - b.minX + 1) * CELL + CELL;
-    const h = (b.maxY - b.minY + 1) * CELL + CELL;
+    const w = (b.maxX - b.minX + 1) * CELL_W + CELL_W;
+    const h = (b.maxY - b.minY + 1) * CELL_H + CELL_H;
     const scale = Math.min(1.4, Math.max(MIN_SCALE, Math.min(el.clientWidth / w, el.clientHeight / h)));
-    const cx = ((b.minX + b.maxX) / 2) * CELL;
-    const cy = ((b.minY + b.maxY) / 2) * CELL;
+    const cx = ((b.minX + b.maxX) / 2) * CELL_W;
+    const cy = ((b.minY + b.maxY) / 2) * CELL_H;
     moveCamera({ x: -cx * scale, y: -cy * scale, scale });
   };
 
@@ -166,8 +166,8 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
                 key={`score-${e.x},${e.y},${e.side}`}
                 className="score-marker"
                 style={{
-                  left: e.x * CELL + (dx * CARD) / 2 - MARKER / 2,
-                  top: e.y * CELL + (dy * CARD) / 2 - MARKER / 2,
+                  left: e.x * CELL_W + (dx * CARD_W) / 2 - MARKER / 2,
+                  top: e.y * CELL_H + (dy * CARD_H) / 2 - MARKER / 2,
                   width: MARKER,
                   height: MARKER,
                   borderColor: tint,
@@ -188,7 +188,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
             <motion.button
               key={`spot-${s.x},${s.y}`}
               className="board-spot"
-              style={{ left: s.x * CELL - CARD / 2, top: s.y * CELL - CARD / 2, width: CARD, height: CARD }}
+              style={{ left: s.x * CELL_W - CARD_W / 2, top: s.y * CELL_H - CARD_H / 2, width: CARD_W, height: CARD_H }}
               initial={{ opacity: 0, scale: 0.6 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.6 }}
@@ -197,7 +197,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
               onClick={guardClick(() => onPlace(s.x, s.y))}
               aria-label={`Place at ${s.x}, ${s.y}`}
             >
-              {selectedCard && <CardFace card={selectedCard} size={CARD} className="spot-preview" />}
+              {selectedCard && <CardFace card={selectedCard} width={CARD_W} className="spot-preview" />}
             </motion.button>
           ))}
         </AnimatePresence>
@@ -235,10 +235,10 @@ function BoardCard({
     <motion.div
       className={`board-card ${isLast ? "is-last" : ""}`}
       style={{
-        left: placed.x * CELL - CARD / 2,
-        top: placed.y * CELL - CARD / 2,
-        width: CARD,
-        height: CARD,
+        left: placed.x * CELL_W - CARD_W / 2,
+        top: placed.y * CELL_H - CARD_H / 2,
+        width: CARD_W,
+        height: CARD_H,
         boxShadow: ownerColor ? `0 0 0 2px ${COLOR_HEX[ownerColor]}` : undefined,
       }}
       initial={{ scale: 0.3, opacity: 0, rotate: -14, y: -40 }}
@@ -248,7 +248,7 @@ function BoardCard({
       onMouseMove={hover.onMove}
       onMouseLeave={hover.onLeave}
     >
-      <CardFace card={placed.card} size={CARD} exposedSides={scoringSides} />
+      <CardFace card={placed.card} width={CARD_W} exposedSides={scoringSides} />
       {isLast && <motion.span className="pulse" initial={{ opacity: 0.9, scale: 1 }} animate={{ opacity: 0, scale: 1.6 }} transition={{ duration: 1.2 }} />}
     </motion.div>
   );

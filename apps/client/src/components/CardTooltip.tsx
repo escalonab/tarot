@@ -54,7 +54,7 @@ export function CardTooltip({ state }: { state: HoverState | null }) {
             exit={{ opacity: 0, y: 6, scale: 0.96 }}
             transition={{ duration: 0.12 }}
           >
-            <CardFace card={state.card} size={72} />
+            <CardFace card={state.card} width={84} />
             <div className="tooltip-body">
               <div className="tooltip-title">{state.card.name}</div>
               <div className="tooltip-meta">{state.meta}</div>

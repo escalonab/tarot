@@ -13,7 +13,7 @@ interface Props {
   hover: HoverHandlers;
 }
 
-const HAND_CARD = 104;
+const HAND_CARD_W = 96;
 
 export function Hand({ hand, board, selectedId, canPlay, onSelect, hover }: Props) {
   const playable = useMemo(() => new Map(hand.map((c) => [c.id, getLegalPlacements(board, c).length])), [hand, board]);
@@ -45,7 +45,8 @@ export function Hand({ hand, board, selectedId, canPlay, onSelect, hover }: Prop
               aria-pressed={selected}
               aria-label={card.name}
             >
-              <CardFace card={card} size={HAND_CARD} />
+              <CardFace card={card} width={HAND_CARD_W} />
+              {selected && <span className="hand-name">{card.name}</span>}
               {canPlay && spots > 0 && <span className="hand-badge">{spots}</span>}
             </motion.button>
           );
