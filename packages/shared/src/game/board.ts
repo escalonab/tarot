@@ -146,6 +146,20 @@ export function scoresByColor(board: Board, colors: readonly Color[]): Record<Co
   return scores;
 }
 
+export interface ScoringEdge extends ExposedEdge {
+  points: number;
+}
+
+/** The exposed edges currently scoring for `color`, with their point values. */
+export function getScoringEdges(board: Board, color: Color): ScoringEdge[] {
+  const out: ScoringEdge[] = [];
+  for (const edge of getExposedEdges(board)) {
+    const hit = resolveEdgeScore(board, board[posKey(edge.x, edge.y)]!, edge.side);
+    if (hit?.color === color) out.push({ ...edge, points: hit.points });
+  }
+  return out;
+}
+
 export function scoreForColor(board: Board, color: Color): number {
   return scoresByColor(board, [color])[color];
 }

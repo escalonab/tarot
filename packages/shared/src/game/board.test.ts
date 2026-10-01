@@ -4,6 +4,7 @@ import {
   edgesFit,
   getExposedEdges,
   getLegalPlacements,
+  getScoringEdges,
   isLegalPlacement,
   placeCard,
   scoreForColor,
@@ -184,5 +185,25 @@ describe("scoring", () => {
     expect(scoreForColor(board, "blue")).toBe(3);
     // nothing can ever be placed against the black sides
     expect(getLegalPlacements(board, card("x", "white", "white", "white", "white")).map((p) => `${p.x},${p.y}`)).not.toContain("1,0");
+  });
+
+  it("lists the edges behind a colour's score, including black ones scoring by proxy", () => {
+    // Cyclops-like: top green, right white, bottom red, left black; Bride (all red) on its right
+    let board: Board = placeCard({}, card("cy", "green", "white", "red", "black"), 0, 0, "p1");
+    board = placeCard(board, marked("br", "star", "red", "red", "red", "red"), 1, 0, "p2");
+    const red = getScoringEdges(board, "red");
+    expect(red).toEqual(
+      expect.arrayContaining([
+        { x: 0, y: 0, side: 2, color: "red", points: 1 },
+        { x: 0, y: 0, side: 3, color: "black", points: 3 }, // opposite is white → takes the star's value
+        { x: 1, y: 0, side: 0, color: "red", points: 3 },
+        { x: 1, y: 0, side: 1, color: "red", points: 3 },
+        { x: 1, y: 0, side: 2, color: "red", points: 3 },
+      ]),
+    );
+    expect(red).toHaveLength(5);
+    expect(red.reduce((n, e) => n + e.points, 0)).toBe(scoreForColor(board, "red"));
+    expect(getScoringEdges(board, "green")).toEqual([{ x: 0, y: 0, side: 0, color: "green", points: 1 }]);
+    expect(getScoringEdges(board, "blue")).toEqual([]);
   });
 });

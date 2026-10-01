@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { Card, Color, GameAction } from "@tarot/shared";
+import { getScoringEdges, type Card, type Color, type GameAction } from "@tarot/shared";
 import { useStore } from "../store";
 import { sendMessage } from "../net/socket";
 import { Board } from "../components/Board";
@@ -17,11 +17,17 @@ export function MatchScreen() {
   const sendAction = useStore((s) => s.sendAction);
   const leaveMatchLocally = useStore((s) => s.leaveMatchLocally);
   const hover = useCardHover();
+  const [breakdownColor, setBreakdownColor] = useState<Color | null>(null);
   const lastEvents = match?.lastEvents;
   const lastPlaced = useMemo(() => {
     const ev = lastEvents ? [...lastEvents].reverse().find((e) => e.type === "cardPlaced") : undefined;
     return ev && ev.type === "cardPlaced" ? { x: ev.x, y: ev.y } : null;
   }, [lastEvents]);
+  const board = match?.view.board;
+  const breakdown = useMemo(
+    () => (board && breakdownColor ? { color: breakdownColor, edges: getScoringEdges(board, breakdownColor) } : null),
+    [board, breakdownColor],
+  );
 
   if (!match || !me) return null;
   const { view, result } = match;
@@ -49,7 +55,14 @@ export function MatchScreen() {
   return (
     <div className="match">
       <header className="match-bar">
-        <PlayerChip name="You" color={view.me.color} score={view.scores[me.id] ?? 0} cards={view.me.hand.length} active={myTurn} />
+        <PlayerChip
+          name="You"
+          color={view.me.color}
+          score={view.scores[me.id] ?? 0}
+          cards={view.me.hand.length}
+          active={myTurn}
+          onHoverScore={setBreakdownColor}
+        />
         <div className="match-center">
           <motion.div key={status} className="status" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
             {status}
@@ -64,6 +77,7 @@ export function MatchScreen() {
           score={view.scores[view.opponent.id] ?? 0}
           cards={view.opponent.handCount}
           active={view.phase === "playing" && view.turn === view.opponent.id}
+          onHoverScore={setBreakdownColor}
           right
         />
         <button className="ghost danger" onClick={leave} title={view.phase === "finished" ? "Back to lobby" : "Forfeit and leave"}>
@@ -71,7 +85,15 @@ export function MatchScreen() {
         </button>
       </header>
 
-      <Board view={view} selectedCard={selectedCard} canPlay={myTurn} onPlace={place} hover={hover.handlers} lastPlaced={lastPlaced} />
+      <Board
+        view={view}
+        selectedCard={selectedCard}
+        canPlay={myTurn}
+        onPlace={place}
+        hover={hover.handlers}
+        lastPlaced={lastPlaced}
+        breakdown={breakdown}
+      />
 
       <Hand hand={view.me.hand} board={view.board} selectedId={selectedId} canPlay={myTurn} onSelect={selectCard} hover={hover.handlers} />
 
@@ -111,7 +133,25 @@ export function MatchScreen() {
   );
 }
 
-function PlayerChip({ name, color, score, cards, active, right }: { name: string; color: Color | null; score: number; cards: number; active: boolean; right?: boolean }) {
+function PlayerChip({
+  name,
+  color,
+  score,
+  cards,
+  active,
+  right,
+  onHoverScore,
+}: {
+  name: string;
+  color: Color | null;
+  score: number;
+  cards: number;
+  active: boolean;
+  right?: boolean;
+  onHoverScore: (color: Color | null) => void;
+}) {
+  const show = () => color && onHoverScore(color);
+  const hide = () => onHoverScore(null);
   return (
     <div className={`chip ${active ? "is-active" : ""} ${right ? "is-right" : ""}`}>
       <span className="swatch lg" style={{ background: color ? COLOR_HEX[color] : "transparent" }} />
@@ -121,9 +161,20 @@ function PlayerChip({ name, color, score, cards, active, right }: { name: string
           {color ? COLOR_LABEL[color] : "—"} · {cards} cards
         </div>
       </div>
-      <motion.div key={score} className="chip-score" initial={{ scale: 1.4 }} animate={{ scale: 1 }}>
-        {score}
-      </motion.div>
+      {/* hover handlers live on a stable wrapper: the keyed number remounts on every score change */}
+      <span
+        className={`chip-score ${color ? "is-hoverable" : ""}`}
+        tabIndex={color ? 0 : -1}
+        title={color ? "Hover to see which edges score" : undefined}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        <motion.span key={score} initial={{ scale: 1.4 }} animate={{ scale: 1 }} style={{ display: "inline-block" }}>
+          {score}
+        </motion.span>
+      </span>
     </div>
   );
 }

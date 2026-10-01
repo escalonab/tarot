@@ -321,6 +321,30 @@ tr.is-me td {
   font-weight: 700;
   min-width: 36px;
   text-align: center;
+  border-radius: 8px;
+  padding: 0 4px;
+  outline: none;
+}
+.chip-score.is-hoverable {
+  cursor: help;
+  transition: background 0.15s;
+}
+.chip-score.is-hoverable:hover,
+.chip-score.is-hoverable:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+}
+.score-marker {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 2px solid;
+  background: #12131a;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  pointer-events: none;
 }
 .swatch {
   display: inline-block;

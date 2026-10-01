@@ -127,7 +127,7 @@ const CARD_TABLE: readonly (readonly [name: string, nsew: string, mark?: Mark])[
   ["Hoatzin", "GYRB"],
   ["Lobster", "YRBG"],
   ["Parrot", "RGBY"],
-  ["Seal", "YGBR"],
+  ["Otter", "YGBR"],
   ["Salamander", "GBYR"],
 ];
 

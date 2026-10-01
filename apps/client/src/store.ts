@@ -82,10 +82,15 @@ export const useStore = create<Store>((set, get) => ({
   handleServer: (msg) => {
     const { toast } = get();
     switch (msg.type) {
-      case "welcome":
+      case "welcome": {
         localStorage.setItem("tarot.token", msg.token);
-        set({ me: { id: msg.playerId, name: msg.name }, status: "online" });
+        // a new identity (e.g. server restarted and forgot us) means any match we were showing is gone
+        const prev = get();
+        const stale = prev.me !== null && prev.me.id !== msg.playerId;
+        set({ me: { id: msg.playerId, name: msg.name }, status: "online", ...(stale ? { match: null, selectedCardId: null, inQueue: false } : {}) });
+        if (stale && prev.match) toast("Server restarted — your match was lost", "error");
         return;
+      }
       case "lobby:state":
         set({ lobby: { players: msg.players, queueSize: msg.queueSize, activeMatches: msg.activeMatches } });
         return;
