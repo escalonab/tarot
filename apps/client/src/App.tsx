@@ -30,7 +30,7 @@ export function App() {
   const signOut = () => {
     disconnect();
     localStorage.removeItem("tarot.name");
-    useStore.setState({ me: null, match: null, inQueue: false });
+    useStore.setState({ me: null, match: null });
   };
 
   const screen = status === "idle" && !me ? <NameScreen /> : match ? <MatchScreen /> : <LobbyScreen />;

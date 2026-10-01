@@ -1,35 +1,45 @@
 import { motion } from "framer-motion";
-import { ACHIEVEMENTS } from "@tarot/shared";
+import { ACHIEVEMENTS, MIN_PLAYERS, type TableInfo } from "@tarot/shared";
 import { useStore } from "../store";
 import { sendMessage } from "../net/socket";
 
 export function LobbyScreen() {
   const me = useStore((s) => s.me);
   const lobby = useStore((s) => s.lobby);
-  const inQueue = useStore((s) => s.inQueue);
   const leaderboard = useStore((s) => s.leaderboard);
   const achievements = useStore((s) => s.achievements);
   const unlocked = new Set(achievements.map((a) => a.id));
-
-  const toggleQueue = () => sendMessage({ type: inQueue ? "queue:leave" : "queue:join" });
+  const seated = lobby.tables.some((t) => t.players.some((p) => p.id === me?.id));
 
   return (
     <div className="lobby">
       <section className="panel hero">
         <h1>Tarot</h1>
-        <p className="muted">Place cards where the colours match. Most exposed edges of your colour wins.</p>
-        <motion.button className={`primary big ${inQueue ? "is-waiting" : ""}`} onClick={toggleQueue} whileTap={{ scale: 0.97 }}>
-          {inQueue ? (
-            <>
-              <span className="spinner" /> Looking for an opponent… (cancel)
-            </>
-          ) : (
-            "Find a match"
-          )}
+        <p className="muted">Place cards where the colours match. Most exposed edges of your colour wins. 2–4 players.</p>
+        <motion.button
+          className="primary big"
+          disabled={seated}
+          onClick={() => sendMessage({ type: "table:create" })}
+          whileTap={{ scale: 0.97 }}
+        >
+          Create a table
         </motion.button>
         <p className="muted small">
-          {lobby.players.length} online · {lobby.queueSize} in queue · {lobby.activeMatches} matches in progress
+          {lobby.players.length} online · {lobby.tables.length} open {lobby.tables.length === 1 ? "table" : "tables"} · {lobby.activeMatches} matches in progress
         </p>
+      </section>
+
+      <section className="panel">
+        <h3>Open tables</h3>
+        {lobby.tables.length === 0 ? (
+          <p className="muted small">No open tables. Create one and wait for others to join.</p>
+        ) : (
+          <ul className="list tables">
+            {lobby.tables.map((t) => (
+              <TableRow key={t.id} table={t} meId={me?.id ?? null} seated={seated} />
+            ))}
+          </ul>
+        )}
       </section>
 
       <div className="lobby-grid">
@@ -96,5 +106,57 @@ export function LobbyScreen() {
         </section>
       </div>
     </div>
+  );
+}
+
+function TableRow({ table, meId, seated }: { table: TableInfo; meId: string | null; seated: boolean }) {
+  const host = table.players[0]!;
+  const mine = table.players.some((p) => p.id === meId);
+  const isHost = host.id === meId;
+  const full = table.players.length >= table.maxPlayers;
+  return (
+    <li className={`table-row ${mine ? "is-mine" : ""}`}>
+      <div>
+        <div>{host.name}&rsquo;s table</div>
+        <div className="seats">
+          {Array.from({ length: table.maxPlayers }, (_, i) => {
+            const p = table.players[i];
+            return (
+              <span key={i} className={`seat ${p ? "is-filled" : ""} ${p?.id === meId ? "is-me" : ""}`}>
+                {p ? p.name : "open"}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <div className="table-actions">
+        {mine ? (
+          <>
+            {isHost ? (
+              <button
+                className="primary"
+                disabled={table.players.length < MIN_PLAYERS}
+                onClick={() => sendMessage({ type: "table:start" })}
+                title={table.players.length < MIN_PLAYERS ? `Need at least ${MIN_PLAYERS} players` : undefined}
+              >
+                Start ({table.players.length}/{table.maxPlayers})
+              </button>
+            ) : (
+              <span className="muted small">
+                <span className="spinner" />
+                Waiting for {host.name}…
+              </span>
+            )}
+            <button className="ghost" onClick={() => sendMessage({ type: "table:leave" })}>
+              Leave
+            </button>
+          </>
+        ) : (
+          <button className="primary" disabled={seated || full} onClick={() => sendMessage({ type: "table:join", tableId: table.id })}>
+            {full ? "Full" : "Join"}
+          </button>
+        )}
+      </div>
+    </li>
   );
 }

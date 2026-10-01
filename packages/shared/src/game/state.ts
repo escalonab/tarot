@@ -11,11 +11,16 @@ import { createRng, shuffle } from "../rng.js";
 
 export type Phase = "choosing" | "playing" | "finished";
 
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 4;
+
 export interface PlayerState {
   id: string;
   name: string;
   color: Color | null;
   hand: Card[];
+  /** False once the player has forfeited: they are skipped for the rest of the round and rank last. */
+  active: boolean;
 }
 
 /** Full authoritative state. Only ever lives on the server; clients get a PlayerView. */
@@ -23,14 +28,16 @@ export interface GameState {
   config: GameConfig;
   seed: number;
   phase: Phase;
-  players: [PlayerState, PlayerState];
+  /** Seating order; turns pass through it in order. */
+  players: PlayerState[];
   board: Board;
   deck: Card[];
   /** playerId whose turn it is (null before the round starts / after it ends) */
   turn: string | null;
   turnNumber: number;
   scores: Record<string, number>;
-  winnerId: string | null;
+  /** Everyone sharing first place once the round is over; more than one id means a tie. */
+  winnerIds: string[];
 }
 
 export type GameAction =
@@ -44,12 +51,14 @@ export type GameEvent =
   | { type: "cardDrawn"; playerId: string }
   | { type: "turnSkipped"; playerId: string }
   | { type: "turnChanged"; playerId: string }
-  | { type: "roundEnded"; scores: Record<string, number>; winnerId: string | null };
+  | { type: "playerLeft"; playerId: string }
+  | { type: "roundEnded"; scores: Record<string, number>; winnerIds: string[] };
 
 export type GameErrorCode =
   | "NOT_YOUR_TURN"
   | "WRONG_PHASE"
   | "UNKNOWN_PLAYER"
+  | "PLAYER_LEFT"
   | "INVALID_COLOR"
   | "COLOR_TAKEN"
   | "CARD_NOT_IN_HAND"
@@ -71,25 +80,25 @@ export interface ApplyResult {
 }
 
 export function createGame(
-  players: [{ id: string; name: string }, { id: string; name: string }],
+  players: readonly { id: string; name: string }[],
   seed: number,
   config: GameConfig = DEFAULT_CONFIG,
 ): GameState {
+  if (players.length < MIN_PLAYERS || players.length > MAX_PLAYERS || new Set(players.map((p) => p.id)).size !== players.length) {
+    throw new Error(`A game needs ${MIN_PLAYERS}-${MAX_PLAYERS} distinct players`);
+  }
   const deck = shuffle(buildDeck(), createRng(seed));
   return {
     config,
     seed,
     phase: "choosing",
-    players: [
-      { id: players[0].id, name: players[0].name, color: null, hand: [] },
-      { id: players[1].id, name: players[1].name, color: null, hand: [] },
-    ],
+    players: players.map((p) => ({ id: p.id, name: p.name, color: null, hand: [], active: true })),
     board: {},
     deck,
     turn: null,
     turnNumber: 0,
-    scores: { [players[0].id]: 0, [players[1].id]: 0 },
-    winnerId: null,
+    scores: Object.fromEntries(players.map((p) => [p.id, 0])),
+    winnerIds: [],
   };
 }
 
@@ -99,10 +108,33 @@ function getPlayer(state: GameState, playerId: string): PlayerState {
   return p;
 }
 
-function getOpponent(state: GameState, playerId: string): PlayerState {
-  const p = state.players.find((pl) => pl.id !== playerId);
-  if (!p) throw new GameError("UNKNOWN_PLAYER");
-  return p;
+function activePlayers(state: GameState): PlayerState[] {
+  return state.players.filter((p) => p.active);
+}
+
+/** Exposed-edge score of every player's colour right now (0 for players who have not picked one). */
+export function liveScores(state: GameState): Record<string, number> {
+  return Object.fromEntries(state.players.map((p) => [p.id, p.color ? scoreForColor(state.board, p.color) : 0]));
+}
+
+export interface Standing {
+  playerId: string;
+  score: number;
+  /** 1-based; equal scores share a rank. */
+  rank: number;
+}
+
+/** Placings, best first: players still in the game by score, then forfeited players by score. */
+export function standings(state: GameState): Standing[] {
+  const scores = liveScores(state);
+  // Array.sort is stable, so exact ties keep seating order
+  const sorted = [...state.players].sort((a, b) => Number(b.active) - Number(a.active) || scores[b.id]! - scores[a.id]!);
+  let rank = 0;
+  return sorted.map((p, i) => {
+    const prev = sorted[i - 1];
+    if (!prev || prev.active !== p.active || scores[prev.id] !== scores[p.id]) rank = i + 1;
+    return { playerId: p.id, score: scores[p.id]!, rank };
+  });
 }
 
 function drawCard(state: GameState, player: PlayerState, events: GameEvent[]): void {
@@ -115,56 +147,58 @@ function drawCard(state: GameState, player: PlayerState, events: GameEvent[]): v
 function finishRound(state: GameState, events: GameEvent[]): void {
   state.phase = "finished";
   state.turn = null;
-  const [a, b] = state.players;
-  state.scores = {
-    [a.id]: a.color ? scoreForColor(state.board, a.color) : 0,
-    [b.id]: b.color ? scoreForColor(state.board, b.color) : 0,
-  };
-  const sa = state.scores[a.id]!;
-  const sb = state.scores[b.id]!;
-  state.winnerId = sa === sb ? null : sa > sb ? a.id : b.id;
-  events.push({ type: "roundEnded", scores: { ...state.scores }, winnerId: state.winnerId });
+  state.scores = liveScores(state);
+  state.winnerIds = standings(state)
+    .filter((s) => s.rank === 1)
+    .map((s) => s.playerId);
+  events.push({ type: "roundEnded", scores: { ...state.scores }, winnerIds: [...state.winnerIds] });
 }
 
 function allCardsPlayed(state: GameState): boolean {
-  return state.deck.length === 0 && state.players.every((p) => p.hand.length === 0);
+  return state.deck.length === 0 && activePlayers(state).every((p) => p.hand.length === 0);
 }
 
 function nobodyCanMove(state: GameState): boolean {
-  return state.players.every((p) => !hasAnyLegalPlacement(state.board, p.hand));
+  return activePlayers(state).every((p) => !hasAnyLegalPlacement(state.board, p.hand));
 }
 
 /**
- * Hands the turn to `next`. A player with no legal move passes without drawing; if neither
- * player can move the round is over, since nothing could ever change.
+ * Passes the turn to the next seat after `fromIndex` that can move. Players with no legal move pass
+ * without drawing; if nobody can move the round is over, since nothing could ever change.
  */
-function advanceTurn(state: GameState, next: PlayerState, events: GameEvent[]): void {
+function advanceTurn(state: GameState, fromIndex: number, events: GameEvent[]): void {
   if (allCardsPlayed(state) || nobodyCanMove(state)) {
     finishRound(state, events);
     return;
   }
-  let current = next;
-  if (!hasAnyLegalPlacement(state.board, current.hand)) {
-    events.push({ type: "turnSkipped", playerId: current.id });
-    current = getOpponent(state, current.id);
+  const n = state.players.length;
+  for (let step = 1; step <= n; step++) {
+    const candidate = state.players[(fromIndex + step) % n]!;
+    if (!candidate.active) continue;
+    if (hasAnyLegalPlacement(state.board, candidate.hand)) {
+      state.turn = candidate.id;
+      state.turnNumber++;
+      events.push({ type: "turnChanged", playerId: candidate.id });
+      return;
+    }
+    events.push({ type: "turnSkipped", playerId: candidate.id });
   }
-  state.turn = current.id;
-  state.turnNumber++;
-  events.push({ type: "turnChanged", playerId: current.id });
 }
 
 function startRound(state: GameState, events: GameEvent[]): void {
+  const seated = activePlayers(state);
   for (let i = 0; i < state.config.handSize; i++) {
-    for (const p of state.players) {
+    for (const p of seated) {
       const card = state.deck.shift();
       if (card) p.hand.push(card);
     }
   }
-  const firstIndex = createRng(state.seed ^ 0x5eed)() < 0.5 ? 0 : 1;
-  const first = state.players[firstIndex]!;
+  const first = seated[Math.floor(createRng(state.seed ^ 0x5eed)() * seated.length)]!;
   state.phase = "playing";
   events.push({ type: "roundStarted", firstPlayerId: first.id });
-  advanceTurn(state, first, events);
+  // start just before the first player so the rotation lands on them
+  const n = state.players.length;
+  advanceTurn(state, (state.players.indexOf(first) + n - 1) % n, events);
 }
 
 /** Pure reducer: validates and applies one action, returning the new state and emitted events. */
@@ -172,16 +206,16 @@ export function applyAction(prev: GameState, playerId: string, action: GameActio
   const state: GameState = structuredClone(prev);
   const events: GameEvent[] = [];
   const player = getPlayer(state, playerId);
+  if (!player.active) throw new GameError("PLAYER_LEFT");
 
   switch (action.type) {
     case "chooseColor": {
       if (state.phase !== "choosing") throw new GameError("WRONG_PHASE");
       if (!state.config.colors.includes(action.color)) throw new GameError("INVALID_COLOR");
-      const opponent = getOpponent(state, playerId);
-      if (opponent.color === action.color) throw new GameError("COLOR_TAKEN");
+      if (state.players.some((p) => p.id !== playerId && p.color === action.color)) throw new GameError("COLOR_TAKEN");
       player.color = action.color;
       events.push({ type: "colorChosen", playerId, color: action.color });
-      if (opponent.color) startRound(state, events);
+      if (activePlayers(state).every((p) => p.color)) startRound(state, events);
       return { state, events };
     }
     case "placeCard": {
@@ -195,10 +229,45 @@ export function applyAction(prev: GameState, playerId: string, action: GameActio
       state.board = placeCard(state.board, card, action.x, action.y, playerId);
       events.push({ type: "cardPlaced", playerId, card, x: action.x, y: action.y });
       drawCard(state, player, events);
-      advanceTurn(state, getOpponent(state, playerId), events);
+      advanceTurn(state, state.players.indexOf(player), events);
       return { state, events };
     }
   }
+}
+
+/**
+ * A player leaves mid-game. They are skipped from now on and rank last; the round ends once fewer
+ * than two players remain. Their placed cards stay on the board.
+ */
+export function forfeitPlayer(prev: GameState, playerId: string): ApplyResult {
+  const state: GameState = structuredClone(prev);
+  const events: GameEvent[] = [];
+  const player = getPlayer(state, playerId);
+  if (!player.active || state.phase === "finished") return { state, events };
+
+  player.active = false;
+  events.push({ type: "playerLeft", playerId });
+  if (state.phase === "choosing") player.color = null; // frees the colour for others
+
+  if (activePlayers(state).length < MIN_PLAYERS) {
+    finishRound(state, events);
+  } else if (state.phase === "choosing") {
+    if (activePlayers(state).every((p) => p.color)) startRound(state, events);
+  } else if (state.turn === playerId) {
+    advanceTurn(state, state.players.indexOf(player), events);
+  } else if (allCardsPlayed(state) || nobodyCanMove(state)) {
+    finishRound(state, events);
+  }
+  return { state, events };
+}
+
+/** What a player may know about everyone at the table. */
+export interface PublicPlayer {
+  id: string;
+  name: string;
+  color: Color | null;
+  handCount: number;
+  active: boolean;
 }
 
 /** What a single player is allowed to see. */
@@ -209,24 +278,18 @@ export interface PlayerView {
   turn: string | null;
   turnNumber: number;
   deckCount: number;
+  /** Live exposed-edge score per player. */
   scores: Record<string, number>;
-  winnerId: string | null;
+  winnerIds: string[];
   /** Live score per colour, including colours nobody picked. */
   exposed: Record<Color, number>;
+  /** Everyone at the table in seating order, including you. */
+  players: PublicPlayer[];
   me: { id: string; name: string; color: Color | null; hand: Card[] };
-  opponent: { id: string; name: string; color: Color | null; handCount: number };
 }
 
 export function toPlayerView(state: GameState, playerId: string): PlayerView {
   const me = getPlayer(state, playerId);
-  const opp = getOpponent(state, playerId);
-  const live: Record<string, number> =
-    state.phase === "finished"
-      ? state.scores
-      : {
-          [me.id]: me.color ? scoreForColor(state.board, me.color) : 0,
-          [opp.id]: opp.color ? scoreForColor(state.board, opp.color) : 0,
-        };
   return {
     phase: state.phase,
     config: state.config,
@@ -234,10 +297,10 @@ export function toPlayerView(state: GameState, playerId: string): PlayerView {
     turn: state.turn,
     turnNumber: state.turnNumber,
     deckCount: state.deck.length,
-    scores: live,
-    winnerId: state.winnerId,
+    scores: liveScores(state),
+    winnerIds: state.winnerIds,
     exposed: scoresByColor(state.board, state.config.colors),
+    players: state.players.map((p) => ({ id: p.id, name: p.name, color: p.color, handCount: p.hand.length, active: p.active })),
     me: { id: me.id, name: me.name, color: me.color, hand: me.hand },
-    opponent: { id: opp.id, name: opp.name, color: opp.color, handCount: opp.hand.length },
   };
 }

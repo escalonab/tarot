@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { getScoringEdges, type Card, type Color, type GameAction } from "@tarot/shared";
+import { getScoringEdges, type Card, type Color, type GameAction, type MatchResult, type PublicPlayer } from "@tarot/shared";
 import { useStore } from "../store";
 import { sendMessage } from "../net/socket";
 import { Board } from "../components/Board";
@@ -50,19 +50,23 @@ export function MatchScreen() {
           ? selectedCard
             ? "Pick a highlighted spot"
             : "Your turn — pick a card"
-          : `${view.opponent.name} is thinking…`;
+          : `${view.players.find((p) => p.id === view.turn)?.name ?? "Someone"} is thinking…`;
 
   return (
     <div className="match">
       <header className="match-bar">
-        <PlayerChip
-          name="You"
-          color={view.me.color}
-          score={view.scores[me.id] ?? 0}
-          cards={view.me.hand.length}
-          active={myTurn}
-          onHoverScore={setBreakdownColor}
-        />
+        <div className="match-players">
+          {view.players.map((p) => (
+            <PlayerChip
+              key={p.id}
+              name={p.id === me.id ? "You" : p.name}
+              player={p}
+              score={view.scores[p.id] ?? 0}
+              active={view.phase === "playing" && view.turn === p.id}
+              onHoverScore={setBreakdownColor}
+            />
+          ))}
+        </div>
         <div className="match-center">
           <motion.div key={status} className="status" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
             {status}
@@ -71,15 +75,6 @@ export function MatchScreen() {
             Deck {view.deckCount} · Turn {view.turnNumber}
           </div>
         </div>
-        <PlayerChip
-          name={view.opponent.name}
-          color={view.opponent.color}
-          score={view.scores[view.opponent.id] ?? 0}
-          cards={view.opponent.handCount}
-          active={view.phase === "playing" && view.turn === view.opponent.id}
-          onHoverScore={setBreakdownColor}
-          right
-        />
         <button className="ghost danger" onClick={leave} title={view.phase === "finished" ? "Back to lobby" : "Forfeit and leave"}>
           {view.phase === "finished" ? "Lobby" : "Forfeit"}
         </button>
@@ -101,22 +96,19 @@ export function MatchScreen() {
 
       <AnimatePresence>
         {view.phase === "choosing" && (
-          <ColorPicker
-            colors={view.config.colors}
-            mine={view.me.color}
-            taken={view.opponent.color}
-            opponentName={view.opponent.name}
-            onPick={(color) => act({ type: "chooseColor", color })}
-          />
+          <ColorPicker colors={view.config.colors} players={view.players} meId={me.id} onPick={(color) => act({ type: "chooseColor", color })} />
         )}
         {result && (
           <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div className="panel result" initial={{ y: 40, scale: 0.9 }} animate={{ y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 24 }}>
-              <h2>{result.winnerId === null ? "Draw" : result.winnerId === me.id ? "You win!" : "You lose"}</h2>
-              {result.reason === "forfeit" && <p className="muted">{result.winnerId === me.id ? "Your opponent forfeited." : "You forfeited."}</p>}
+              <h2>{resultTitle(result, me.id, view.players.length)}</h2>
+              {result.reason === "forfeit" && <p className="muted">Everyone else left the match.</p>}
               <div className="result-scores">
-                <ScoreLine name="You" color={view.me.color} score={result.scores[me.id] ?? 0} />
-                <ScoreLine name={view.opponent.name} color={view.opponent.color} score={result.scores[view.opponent.id] ?? 0} />
+                {[...view.players]
+                  .sort((a, b) => (result.ranks[a.id] ?? 0) - (result.ranks[b.id] ?? 0))
+                  .map((p) => (
+                    <ScoreLine key={p.id} rank={result.ranks[p.id] ?? 0} name={p.id === me.id ? "You" : p.name} color={p.color} score={result.scores[p.id] ?? 0} left={!p.active} />
+                  ))}
               </div>
               <p className="muted">
                 Rating {result.ratingDelta >= 0 ? "+" : ""}
@@ -133,33 +125,36 @@ export function MatchScreen() {
   );
 }
 
+function resultTitle(result: MatchResult, meId: string, playerCount: number): string {
+  const rank = result.ranks[meId] ?? playerCount;
+  if (result.winnerIds.includes(meId)) return result.winnerIds.length > 1 ? "Tie for the win" : "You win!";
+  return playerCount === 2 ? "You lose" : `You placed ${ORDINAL[rank] ?? `${rank}th`}`;
+}
+
+const ORDINAL: Record<number, string> = { 2: "2nd", 3: "3rd", 4: "4th" };
+
 function PlayerChip({
   name,
-  color,
+  player,
   score,
-  cards,
   active,
-  right,
   onHoverScore,
 }: {
   name: string;
-  color: Color | null;
+  player: PublicPlayer;
   score: number;
-  cards: number;
   active: boolean;
-  right?: boolean;
   onHoverScore: (color: Color | null) => void;
 }) {
+  const { color } = player;
   const show = () => color && onHoverScore(color);
   const hide = () => onHoverScore(null);
   return (
-    <div className={`chip ${active ? "is-active" : ""} ${right ? "is-right" : ""}`}>
+    <div className={`chip ${active ? "is-active" : ""} ${player.active ? "" : "is-out"}`}>
       <span className="swatch lg" style={{ background: color ? COLOR_HEX[color] : "transparent" }} />
       <div>
         <div className="chip-name">{name}</div>
-        <div className="muted small">
-          {color ? COLOR_LABEL[color] : "—"} · {cards} cards
-        </div>
+        <div className="muted small">{player.active ? `${color ? COLOR_LABEL[color] : "—"} · ${player.handCount} cards` : "left the match"}</div>
       </div>
       {/* hover handlers live on a stable wrapper: the keyed number remounts on every score change */}
       <span
@@ -179,11 +174,13 @@ function PlayerChip({
   );
 }
 
-function ScoreLine({ name, color, score }: { name: string; color: Color | null; score: number }) {
+function ScoreLine({ rank, name, color, score, left }: { rank: number; name: string; color: Color | null; score: number; left: boolean }) {
   return (
-    <div className="score-line">
+    <div className={`score-line ${left ? "is-out" : ""}`}>
+      <span className="muted small rank">{rank}</span>
       <span className="swatch" style={{ background: color ? COLOR_HEX[color] : "transparent" }} />
       <span>{name}</span>
+      {left && <span className="muted small">left</span>}
       <strong>{score}</strong>
     </div>
   );

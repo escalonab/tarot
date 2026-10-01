@@ -219,11 +219,53 @@ h3 {
 .dot.idle {
   background: var(--accent-2);
 }
-.dot.queued {
+.dot.seated {
   background: #f5c432;
 }
 .dot.playing {
   background: var(--accent);
+}
+.tables {
+  gap: 10px;
+}
+.list li.table-row {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+.list li.table-row.is-mine {
+  border-color: var(--accent);
+  color: inherit;
+}
+.seats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.seat {
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.seat.is-filled {
+  border-style: solid;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+.seat.is-me {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 table {
   width: 100%;
@@ -282,14 +324,21 @@ tr.is-me td {
 }
 .match-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 12px 16px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: rgba(14, 15, 21, 0.55);
 }
+.match-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .match-center {
   flex: 1;
+  min-width: 140px;
   text-align: center;
 }
 .status {
@@ -309,9 +358,8 @@ tr.is-me td {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.2), 0 0 24px rgba(124, 140, 255, 0.25);
 }
-.chip.is-right {
-  flex-direction: row-reverse;
-  text-align: right;
+.chip.is-out {
+  opacity: 0.5;
 }
 .chip-name {
   font-weight: 600;
@@ -531,6 +579,12 @@ tr.is-me td {
   padding: 8px 12px;
   background: var(--bg);
   border-radius: 10px;
+}
+.score-line.is-out {
+  opacity: 0.55;
+}
+.score-line .rank {
+  width: 1ch;
 }
 .score-line strong {
   margin-left: auto;

@@ -77,9 +77,19 @@ export const ACHIEVEMENTS: readonly AchievementRule[] = [
   },
 ];
 
-/** Elo with K=32; returns [deltaA, deltaB]. `scoreA` is 1 win, 0.5 draw, 0 loss. */
-export function eloDelta(ratingA: number, ratingB: number, scoreA: number, k = 32): [number, number] {
-  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  const deltaA = Math.round(k * (scoreA - expectedA));
-  return [deltaA, -deltaA];
+/**
+ * Elo for any number of players: every pair is scored from the final ranks (lower is better, equal
+ * is a draw) with K split across the opponents, so a two-player game is plain Elo with K=32.
+ */
+export function multiEloDeltas(entries: readonly { rating: number; rank: number }[], k = 32): number[] {
+  if (entries.length < 2) return entries.map(() => 0);
+  return entries.map((a, i) => {
+    let sum = 0;
+    entries.forEach((b, j) => {
+      if (i === j) return;
+      const expected = 1 / (1 + Math.pow(10, (b.rating - a.rating) / 400));
+      sum += (a.rank < b.rank ? 1 : a.rank > b.rank ? 0 : 0.5) - expected;
+    });
+    return Math.round((k / (entries.length - 1)) * sum);
+  });
 }

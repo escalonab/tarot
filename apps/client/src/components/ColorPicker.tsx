@@ -1,16 +1,17 @@
 import { motion } from "framer-motion";
-import type { Color } from "@tarot/shared";
+import type { Color, PublicPlayer } from "@tarot/shared";
 import { COLOR_HEX, COLOR_LABEL } from "../theme";
 
 interface Props {
   colors: readonly Color[];
-  mine: Color | null;
-  taken: Color | null;
-  opponentName: string;
+  players: PublicPlayer[];
+  meId: string;
   onPick: (color: Color) => void;
 }
 
-export function ColorPicker({ colors, mine, taken, opponentName, onPick }: Props) {
+export function ColorPicker({ colors, players, meId, onPick }: Props) {
+  const mine = players.find((p) => p.id === meId)?.color ?? null;
+  const waitingOn = players.filter((p) => p.active && !p.color).map((p) => p.name);
   return (
     <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div className="panel" initial={{ y: 30, scale: 0.96 }} animate={{ y: 0, scale: 1 }}>
@@ -21,8 +22,9 @@ export function ColorPicker({ colors, mine, taken, opponentName, onPick }: Props
         </p>
         <div className="color-grid">
           {colors.map((c) => {
-            const isTaken = taken === c;
-            const isMine = mine === c;
+            const owner = players.find((p) => p.color === c);
+            const isMine = owner?.id === meId;
+            const isTaken = owner !== undefined && !isMine;
             return (
               <motion.button
                 key={c}
@@ -34,13 +36,13 @@ export function ColorPicker({ colors, mine, taken, opponentName, onPick }: Props
                 onClick={() => onPick(c)}
               >
                 <span>{COLOR_LABEL[c]}</span>
-                {isTaken && <small>{opponentName}</small>}
+                {isTaken && <small>{owner.name}</small>}
                 {isMine && <small>You</small>}
               </motion.button>
             );
           })}
         </div>
-        {mine && <p className="muted">Waiting for {opponentName} to choose…</p>}
+        {mine && waitingOn.length > 0 && <p className="muted">Waiting for {waitingOn.join(", ")} to choose…</p>}
       </motion.div>
     </motion.div>
   );

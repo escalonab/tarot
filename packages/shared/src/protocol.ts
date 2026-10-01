@@ -32,8 +32,10 @@ export const PlayerNameSchema = z
 /** Messages the browser sends to the server. */
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello"), name: PlayerNameSchema, token: z.string().uuid().optional() }),
-  z.object({ type: z.literal("queue:join") }),
-  z.object({ type: z.literal("queue:leave") }),
+  z.object({ type: z.literal("table:create") }),
+  z.object({ type: z.literal("table:join"), tableId: z.string().uuid() }),
+  z.object({ type: z.literal("table:leave") }),
+  z.object({ type: z.literal("table:start") }),
   z.object({ type: z.literal("match:action"), action: GameActionSchema }),
   z.object({ type: z.literal("match:leave") }),
   z.object({ type: z.literal("leaderboard:get") }),
@@ -44,7 +46,16 @@ export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export interface LobbyPlayer {
   id: string;
   name: string;
-  status: "idle" | "queued" | "playing";
+  status: "idle" | "seated" | "playing";
+}
+
+/** An open table waiting for players; the host (first seat) starts the match once 2+ are seated. */
+export interface TableInfo {
+  id: string;
+  hostId: string;
+  /** Seated players, host first. */
+  players: { id: string; name: string }[];
+  maxPlayers: number;
 }
 
 export interface LeaderboardEntry {
@@ -67,18 +78,21 @@ export interface UnlockedAchievement extends AchievementDef {
 }
 
 export interface MatchResult {
-  winnerId: string | null;
+  /** Everyone sharing first place; more than one id means a tie. */
+  winnerIds: string[];
   scores: Record<string, number>;
+  /** 1-based placing per player; equal scores share a rank and forfeited players rank last. */
+  ranks: Record<string, number>;
   /** Rating change for the receiving player. */
   ratingDelta: number;
+  /** `forfeit` when everyone but one player left, otherwise the cards ran out or nobody could move. */
   reason: "completed" | "forfeit";
 }
 
 /** Messages the server sends to the browser. Clients trust the server, so no runtime schema needed. */
 export type ServerMessage =
   | { type: "welcome"; playerId: string; token: string; name: string; protocolVersion: number }
-  | { type: "lobby:state"; players: LobbyPlayer[]; queueSize: number; activeMatches: number }
-  | { type: "queue:status"; inQueue: boolean }
+  | { type: "lobby:state"; players: LobbyPlayer[]; tables: TableInfo[]; activeMatches: number }
   | { type: "match:started"; matchId: string; view: PlayerView }
   | { type: "match:update"; matchId: string; view: PlayerView; events: GameEvent[] }
   | {
@@ -93,4 +107,4 @@ export type ServerMessage =
   | { type: "error"; code: string; message: string }
   | { type: "pong" };
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;

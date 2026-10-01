@@ -2,11 +2,15 @@ import { randomUUID, randomInt } from "node:crypto";
 import {
   ACHIEVEMENTS,
   GameError,
+  MIN_PLAYERS,
   applyAction,
   createGame,
-  eloDelta,
+  forfeitPlayer,
+  multiEloDeltas,
+  standings,
   toPlayerView,
   type GameAction,
+  type GameEvent,
   type GameState,
   type MatchResult,
   type UnlockedAchievement,
@@ -25,14 +29,12 @@ export class Match {
   ended = false;
 
   constructor(
-    readonly players: [Player, Player],
+    /** 2-4 players in seating order. */
+    readonly players: Player[],
     private readonly hooks: MatchHooks,
   ) {
     this.state = createGame(
-      [
-        { id: players[0].id, name: players[0].name },
-        { id: players[1].id, name: players[1].name },
-      ],
+      players.map((p) => ({ id: p.id, name: p.name })),
       randomInt(0, 2 ** 31),
     );
     for (const p of players) p.matchId = this.id;
@@ -46,28 +48,34 @@ export class Match {
     return this.players.some((p) => p.id === player.id);
   }
 
-  opponentOf(player: Player): Player {
-    return this.players[0].id === player.id ? this.players[1] : this.players[0];
+  /** True once the player has forfeited; they no longer receive match updates. */
+  isEliminated(player: Player): boolean {
+    return this.state.players.find((p) => p.id === player.id)?.active === false;
   }
 
   handleAction(player: Player, action: GameAction): void {
     if (this.ended) return send(player, { type: "error", code: "MATCH_OVER", message: "The match is over." });
     try {
       const { state, events } = applyAction(this.state, player.id, action);
-      this.state = state;
-      for (const p of this.players) {
-        send(p, { type: "match:update", matchId: this.id, view: toPlayerView(state, p.id), events });
-      }
-      if (state.phase === "finished") this.finish("completed", state.winnerId);
+      this.commit(state, events);
     } catch (err) {
       if (err instanceof GameError) return send(player, { type: "error", code: err.code, message: err.message });
       throw err;
     }
   }
 
+  private commit(state: GameState, events: GameEvent[]): void {
+    this.state = state;
+    for (const p of this.players) {
+      if (this.isEliminated(p)) continue;
+      send(p, { type: "match:update", matchId: this.id, view: toPlayerView(state, p.id), events });
+    }
+    if (state.phase === "finished") this.finish();
+  }
+
   /** Called when a player's socket drops; they forfeit unless they come back in time. */
   playerDisconnected(player: Player): void {
-    if (this.ended) return;
+    if (this.ended || this.isEliminated(player)) return;
     this.clearTimer(player.id);
     this.disconnectTimers.set(
       player.id,
@@ -80,9 +88,12 @@ export class Match {
     send(player, { type: "match:started", matchId: this.id, view: toPlayerView(this.state, player.id) });
   }
 
+  /** The player drops out; everyone else plays on unless fewer than two remain. */
   forfeit(player: Player): void {
-    if (this.ended) return;
-    this.finish("forfeit", this.opponentOf(player).id);
+    if (this.ended || this.isEliminated(player)) return;
+    this.clearTimer(player.id);
+    const { state, events } = forfeitPlayer(this.state, player.id);
+    this.commit(state, events);
   }
 
   private clearTimer(playerId: string): void {
@@ -91,26 +102,23 @@ export class Match {
     this.disconnectTimers.delete(playerId);
   }
 
-  private finish(reason: MatchResult["reason"], winnerId: string | null): void {
+  private finish(): void {
     if (this.ended) return;
     this.ended = true;
-    for (const id of this.disconnectTimers.keys()) this.clearTimer(id);
+    for (const id of [...this.disconnectTimers.keys()]) this.clearTimer(id);
 
-    const [a, b] = this.players;
-    const scoreA = winnerId === null ? 0.5 : winnerId === a.id ? 1 : 0;
-    const [deltaA, deltaB] = eloDelta(a.stats.rating, b.stats.rating, scoreA);
-    const deltas: Record<string, number> = { [a.id]: deltaA, [b.id]: deltaB };
-
-    const scores =
-      this.state.phase === "finished"
-        ? this.state.scores
-        : Object.fromEntries(this.players.map((p) => [p.id, toPlayerView(this.state, p.id).scores[p.id] ?? 0]));
+    const state = this.state;
+    const scores = state.scores;
+    const ranks = Object.fromEntries(standings(state).map((s) => [s.playerId, s.rank]));
+    const winners = new Set(state.winnerIds);
+    // fewer than two players left means the others gave up rather than the cards running out
+    const reason: MatchResult["reason"] = state.players.filter((p) => p.active).length < MIN_PLAYERS ? "forfeit" : "completed";
+    const deltas = multiEloDeltas(this.players.map((p) => ({ rating: p.stats.rating, rank: ranks[p.id]! })));
 
     const unlockedByPlayer = new Map<string, UnlockedAchievement[]>();
-    for (const p of this.players) {
-      const opp = this.opponentOf(p);
-      const won = winnerId === p.id;
-      const draw = winnerId === null;
+    this.players.forEach((p, i) => {
+      const won = winners.has(p.id) && winners.size === 1;
+      const draw = winners.has(p.id) && winners.size > 1;
       const s = p.stats;
       s.games++;
       if (won) s.wins++;
@@ -118,21 +126,23 @@ export class Match {
       else s.losses++;
       s.winStreak = won ? s.winStreak + 1 : 0;
       if (won && reason === "completed") {
-        s.bestMargin = Math.max(s.bestMargin, (scores[p.id] ?? 0) - (scores[opp.id] ?? 0));
+        const best = Math.max(0, ...this.players.filter((o) => o.id !== p.id).map((o) => scores[o.id] ?? 0));
+        s.bestMargin = Math.max(s.bestMargin, (scores[p.id] ?? 0) - best);
       }
-      s.rating += deltas[p.id] ?? 0;
+      s.rating += deltas[i] ?? 0;
       unlockedByPlayer.set(p.id, this.evaluateAchievements(p));
-    }
+    });
 
-    for (const p of this.players) {
+    this.players.forEach((p, i) => {
+      if (this.isEliminated(p)) return; // they already went back to the lobby
       send(p, {
         type: "match:ended",
         matchId: this.id,
-        view: toPlayerView(this.state, p.id),
-        result: { winnerId, scores, ratingDelta: deltas[p.id] ?? 0, reason },
+        view: toPlayerView(state, p.id),
+        result: { winnerIds: state.winnerIds, scores, ranks, ratingDelta: deltas[i] ?? 0, reason },
         unlocked: unlockedByPlayer.get(p.id) ?? [],
       });
-    }
+    });
     this.hooks.onEnd(this);
   }
 

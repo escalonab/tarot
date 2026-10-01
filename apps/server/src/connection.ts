@@ -53,10 +53,14 @@ export function handleConnection(socket: WebSocket, { players, lobby }: Deps): v
     player.lastSeen = Date.now();
 
     switch (msg.type) {
-      case "queue:join":
-        return lobby.joinQueue(player);
-      case "queue:leave":
-        return lobby.leaveQueue(player);
+      case "table:create":
+        return lobby.createTable(player);
+      case "table:join":
+        return lobby.joinTable(player, msg.tableId);
+      case "table:leave":
+        return lobby.leaveTable(player);
+      case "table:start":
+        return lobby.startTable(player);
       case "match:action": {
         const match = lobby.getMatch(player.matchId);
         if (!match) return send(player, { type: "error", code: "NO_MATCH", message: "You are not in a match." });

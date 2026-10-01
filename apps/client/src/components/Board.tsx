@@ -40,8 +40,10 @@ interface Camera {
 
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 2.2;
+const WHEEL_ZOOM = 0.003;
 const MARKER = 26;
 const CAMERA_SPRING = { type: "spring", stiffness: 260, damping: 32, mass: 0.6 } as const;
+const WHEEL_SPRING = { type: "spring", stiffness: 400, damping: 40 } as const;
 
 export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced, breakdown }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +54,8 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
   const gridPosition = useMotionTemplate`${camX}px ${camY}px`;
   const gridSize = useTransform(camScale, (s) => `${CELL_W * s}px ${CELL_H * s}px`);
   const drag = useRef<{ startX: number; startY: number; camX: number; camY: number; moved: boolean } | null>(null);
+  // Where the in-flight wheel zoom is heading, so rapid ticks compound instead of restarting from the lagging value.
+  const zoomTarget = useRef<Camera | null>(null);
 
   const cards = useMemo(() => Object.values(view.board), [view.board]);
   const spots = useMemo(
@@ -71,22 +75,23 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
     return map;
   }, [breakdown]);
   const ownerColor = useCallback(
-    (playerId: string): Color | null => {
-      if (playerId === view.me.id) return view.me.color;
-      if (playerId === view.opponent.id) return view.opponent.color;
-      return null;
-    },
-    [view.me, view.opponent],
+    (playerId: string): Color | null => view.players.find((p) => p.id === playerId)?.color ?? null,
+    [view.players],
   );
 
+  const animateCamera = (to: Camera, spring: typeof CAMERA_SPRING | typeof WHEEL_SPRING) => {
+    animate(camX, to.x, spring);
+    animate(camY, to.y, spring);
+    animate(camScale, to.scale, spring);
+  };
   const moveCamera = (to: Camera) => {
-    animate(camX, to.x, CAMERA_SPRING);
-    animate(camY, to.y, CAMERA_SPRING);
-    animate(camScale, to.scale, CAMERA_SPRING);
+    zoomTarget.current = null;
+    animateCamera(to, CAMERA_SPRING);
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    zoomTarget.current = null;
     camX.stop();
     camY.stop();
     drag.current = { startX: e.clientX, startY: e.clientY, camX: camX.get(), camY: camY.get(), moved: false };
@@ -110,9 +115,20 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
     setTimeout(() => (drag.current = null), 0);
   };
   const onWheel = (e: React.WheelEvent) => {
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, camScale.get() * factor));
-    animate(camScale, next, { type: "spring", stiffness: 400, damping: 40 });
+    const el = containerRef.current;
+    if (!el) return;
+    // proportional to the scroll amount (~1.35x per mouse notch); Firefox reports lines, not pixels
+    const dy = Math.max(-200, Math.min(200, e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY));
+    const base = zoomTarget.current ?? { x: camX.get(), y: camY.get(), scale: camScale.get() };
+    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, base.scale * Math.exp(-dy * WHEEL_ZOOM)));
+    const ratio = scale / base.scale;
+    // the world origin sits at the container centre, so keep the point under the cursor fixed relative to it
+    const rect = el.getBoundingClientRect();
+    const px = e.clientX - rect.left - rect.width / 2;
+    const py = e.clientY - rect.top - rect.height / 2;
+    const to = { x: px - (px - base.x) * ratio, y: py - (py - base.y) * ratio, scale };
+    zoomTarget.current = to;
+    animateCamera(to, WHEEL_SPRING);
   };
 
   const fitToBoard = () => {
@@ -152,7 +168,7 @@ export function Board({ view, selectedCard, canPlay, onPlace, hover, lastPlaced,
               ownerColor={ownerColor(placed.playerId)}
               isLast={!!lastPlaced && lastPlaced.x === placed.x && lastPlaced.y === placed.y}
               hover={hover}
-              ownerName={placed.playerId === view.me.id ? "You" : view.opponent.name}
+              ownerName={placed.playerId === view.me.id ? "You" : (view.players.find((p) => p.id === placed.playerId)?.name ?? "Player")}
               scoringSides={scoringSides ? scoringSides.get(posKey(placed.x, placed.y)) ?? [false, false, false, false] : undefined}
             />
           ))}

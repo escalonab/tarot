@@ -57,8 +57,8 @@ export class PlayerRegistry {
     return [...this.byId.values()].filter((p) => p.socket?.readyState === 1);
   }
 
-  toLobbyPlayer(p: Player, queued: boolean): LobbyPlayer {
-    return { id: p.id, name: p.name, status: p.matchId ? "playing" : queued ? "queued" : "idle" };
+  toLobbyPlayer(p: Player, seated: boolean): LobbyPlayer {
+    return { id: p.id, name: p.name, status: p.matchId ? "playing" : seated ? "seated" : "idle" };
   }
 
   leaderboard(limit = 20): LeaderboardEntry[] {

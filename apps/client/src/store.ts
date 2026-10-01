@@ -7,6 +7,7 @@ import type {
   MatchResult,
   PlayerView,
   ServerMessage,
+  TableInfo,
   UnlockedAchievement,
 } from "@tarot/shared";
 import { sfx } from "./audio";
@@ -30,8 +31,7 @@ export interface MatchState {
 interface Store {
   status: ConnectionStatus;
   me: { id: string; name: string } | null;
-  lobby: { players: LobbyPlayer[]; queueSize: number; activeMatches: number };
-  inQueue: boolean;
+  lobby: { players: LobbyPlayer[]; tables: TableInfo[]; activeMatches: number };
   match: MatchState | null;
   leaderboard: LeaderboardEntry[];
   achievements: UnlockedAchievement[];
@@ -53,8 +53,7 @@ let toastSeq = 0;
 export const useStore = create<Store>((set, get) => ({
   status: "idle",
   me: null,
-  lobby: { players: [], queueSize: 0, activeMatches: 0 },
-  inQueue: false,
+  lobby: { players: [], tables: [], activeMatches: 0 },
   match: null,
   leaderboard: [],
   achievements: [],
@@ -87,15 +86,12 @@ export const useStore = create<Store>((set, get) => ({
         // a new identity (e.g. server restarted and forgot us) means any match we were showing is gone
         const prev = get();
         const stale = prev.me !== null && prev.me.id !== msg.playerId;
-        set({ me: { id: msg.playerId, name: msg.name }, status: "online", ...(stale ? { match: null, selectedCardId: null, inQueue: false } : {}) });
+        set({ me: { id: msg.playerId, name: msg.name }, status: "online", ...(stale ? { match: null, selectedCardId: null } : {}) });
         if (stale && prev.match) toast("Server restarted — your match was lost", "error");
         return;
       }
       case "lobby:state":
-        set({ lobby: { players: msg.players, queueSize: msg.queueSize, activeMatches: msg.activeMatches } });
-        return;
-      case "queue:status":
-        set({ inQueue: msg.inQueue });
+        set({ lobby: { players: msg.players, tables: msg.tables, activeMatches: msg.activeMatches } });
         return;
       case "leaderboard":
         set({ leaderboard: msg.entries });
@@ -108,14 +104,17 @@ export const useStore = create<Store>((set, get) => ({
         if (!resumed) sfx.matchFound();
         set({
           match: { id: msg.matchId, view: msg.view, lastEvents: [], result: null },
-          inQueue: false,
           selectedCardId: null,
         });
-        if (!resumed) toast(`Match found — you play ${msg.view.opponent.name}`, "success");
+        if (!resumed) {
+          const others = msg.view.players.filter((p) => p.id !== msg.view.me.id).map((p) => p.name);
+          toast(`Match started — you play ${others.join(", ")}`, "success");
+        }
         return;
       }
       case "match:update": {
         const me = get().me;
+        const nameOf = (id: string) => msg.view.players.find((p) => p.id === id)?.name ?? "A player";
         set({ match: { id: msg.matchId, view: msg.view, lastEvents: msg.events, result: null } });
         for (const ev of msg.events) {
           switch (ev.type) {
@@ -130,13 +129,16 @@ export const useStore = create<Store>((set, get) => ({
               break;
             case "turnSkipped":
               sfx.skipped();
-              toast(ev.playerId === me?.id ? "No legal move — your turn was skipped" : "Opponent had no legal move");
+              toast(ev.playerId === me?.id ? "No legal move — your turn was skipped" : `${nameOf(ev.playerId)} had no legal move`);
               break;
             case "roundStarted":
-              toast(ev.firstPlayerId === me?.id ? "You go first" : "Opponent goes first");
+              toast(ev.firstPlayerId === me?.id ? "You go first" : `${nameOf(ev.firstPlayerId)} goes first`);
               break;
             case "colorChosen":
-              if (ev.playerId !== me?.id) toast(`${msg.view.opponent.name} picked ${ev.color}`);
+              if (ev.playerId !== me?.id) toast(`${nameOf(ev.playerId)} picked ${ev.color}`);
+              break;
+            case "playerLeft":
+              if (ev.playerId !== me?.id) toast(`${nameOf(ev.playerId)} left the match`);
               break;
           }
         }
@@ -147,9 +149,10 @@ export const useStore = create<Store>((set, get) => ({
       case "match:ended": {
         const me = get().me;
         set({ match: { id: msg.matchId, view: msg.view, lastEvents: [], result: msg.result }, selectedCardId: null });
-        if (msg.result.winnerId === null) sfx.tie();
-        else if (msg.result.winnerId === me?.id) sfx.win();
-        else sfx.lose();
+        const { winnerIds } = msg.result;
+        if (!me || !winnerIds.includes(me.id)) sfx.lose();
+        else if (winnerIds.length > 1) sfx.tie();
+        else sfx.win();
         if (msg.unlocked.length) {
           set((s) => ({ achievements: [...s.achievements, ...msg.unlocked] }));
           setTimeout(() => {
