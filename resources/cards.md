@@ -66,5 +66,5 @@
 | 64 | Hoatzin          | Green  | Yellow | Red    | Blue   |             |
 | 65 | Lobster          | Yellow | Red    | Blue   | Green  |             |
 | 66 | Parrot           | Red    | Green  | Blue   | Yellow |             |
-| 67 | Seal             | Yellow | Green  | Blue   | Red    |             |
+| 67 | Otter            | Yellow | Green  | Blue   | Red    |             |
 | 68 | Salamander       | Green  | Blue   | Yellow | Red    |             |
