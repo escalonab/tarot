@@ -5,9 +5,17 @@ import { useStore } from "../store";
 import { sendMessage } from "../net/socket";
 import { Board } from "../components/Board";
 import { Hand } from "../components/Hand";
+import { OpponentHand, type SeatSide } from "../components/OpponentHand";
 import { ColorPicker } from "../components/ColorPicker";
 import { CardTooltip, useCardHover } from "../components/CardTooltip";
 import { COLOR_HEX, COLOR_LABEL } from "../theme";
+
+/** Sides for the opponents in turn order after you (clockwise from your seat at the bottom). */
+const OPPONENT_SIDES: Record<number, SeatSide[]> = {
+  1: ["top"],
+  2: ["left", "right"],
+  3: ["left", "top", "right"],
+};
 
 export function MatchScreen() {
   const match = useStore((s) => s.match);
@@ -33,6 +41,8 @@ export function MatchScreen() {
   const { view, result } = match;
   const myTurn = view.phase === "playing" && view.turn === me.id;
   const selectedCard: Card | null = view.me.hand.find((c) => c.id === selectedId) ?? null;
+  const seat = view.players.findIndex((p) => p.id === me.id);
+  const opponents = view.players.slice(seat + 1).concat(view.players.slice(0, seat));
 
   const act = (action: GameAction) => sendAction(action);
   const place = (x: number, y: number) => selectedCard && act({ type: "placeCard", cardId: selectedCard.id, x, y });
@@ -80,15 +90,27 @@ export function MatchScreen() {
         </button>
       </header>
 
-      <Board
-        view={view}
-        selectedCard={selectedCard}
-        canPlay={myTurn}
-        onPlace={place}
-        hover={hover.handlers}
-        lastPlaced={lastPlaced}
-        breakdown={breakdown}
-      />
+      <div className="match-table">
+        {opponents.map((p, i) => (
+          <OpponentHand
+            key={p.id}
+            player={p}
+            side={OPPONENT_SIDES[opponents.length]?.[i] ?? "top"}
+            board={view.board}
+            active={view.phase === "playing" && view.turn === p.id}
+            hover={hover.handlers}
+          />
+        ))}
+        <Board
+          view={view}
+          selectedCard={selectedCard}
+          canPlay={myTurn}
+          onPlace={place}
+          hover={hover.handlers}
+          lastPlaced={lastPlaced}
+          breakdown={breakdown}
+        />
+      </div>
 
       <Hand hand={view.me.hand} board={view.board} selectedId={selectedId} canPlay={myTurn} onSelect={selectCard} hover={hover.handlers} />
 
@@ -154,7 +176,7 @@ function PlayerChip({
       <span className="swatch lg" style={{ background: color ? COLOR_HEX[color] : "transparent" }} />
       <div>
         <div className="chip-name">{name}</div>
-        <div className="muted small">{player.active ? `${color ? COLOR_LABEL[color] : "—"} · ${player.handCount} cards` : "left the match"}</div>
+        <div className="muted small">{player.active ? `${color ? COLOR_LABEL[color] : "—"} · ${player.hand.length} cards` : "left the match"}</div>
       </div>
       {/* hover handlers live on a stable wrapper: the keyed number remounts on every score change */}
       <span

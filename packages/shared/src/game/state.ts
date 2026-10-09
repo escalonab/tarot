@@ -261,12 +261,12 @@ export function forfeitPlayer(prev: GameState, playerId: string): ApplyResult {
   return { state, events };
 }
 
-/** What a player may know about everyone at the table. */
+/** What a player may know about everyone at the table. Hands are played face up, so they are public. */
 export interface PublicPlayer {
   id: string;
   name: string;
   color: Color | null;
-  handCount: number;
+  hand: Card[];
   active: boolean;
 }
 
@@ -300,7 +300,7 @@ export function toPlayerView(state: GameState, playerId: string): PlayerView {
     scores: liveScores(state),
     winnerIds: state.winnerIds,
     exposed: scoresByColor(state.board, state.config.colors),
-    players: state.players.map((p) => ({ id: p.id, name: p.name, color: p.color, handCount: p.hand.length, active: p.active })),
+    players: state.players.map((p) => ({ id: p.id, name: p.name, color: p.color, hand: p.hand, active: p.active })),
     me: { id: me.id, name: me.name, color: me.color, hand: me.hand },
   };
 }

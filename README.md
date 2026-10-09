@@ -13,8 +13,8 @@ apps/client       Vite + React + Framer Motion: board, hand, animations, procedu
 ```
 
 The engine in `packages/shared/src/game` is pure and deterministic. The server is the only place
-that holds full state (deck, every hand); clients receive a `PlayerView` with their own hand and
-the other players' card counts.
+that holds full state (deck, every hand); clients receive a `PlayerView` with every player's open hand
+(the rules play face up) but not the deck.
 
 ## Rules (current)
 

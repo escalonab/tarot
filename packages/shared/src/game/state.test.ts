@@ -198,15 +198,14 @@ describe("full rounds", () => {
 });
 
 describe("player view", () => {
-  it("hides the other players' hands and the deck", () => {
+  it("shows every player's open hand but not the deck", () => {
     const s = startedGame();
     const view = toPlayerView(s, "p1");
     expect(view.me.id).toBe("p1");
     expect(view.me.hand).toHaveLength(5);
     expect(view.players.map((p) => p.id)).toEqual(["p1", "p2"]);
     const other = view.players.find((p) => p.id === "p2")!;
-    expect(other).not.toHaveProperty("hand");
-    expect(other.handCount).toBe(5);
+    expect(other.hand).toEqual(s.players[1]!.hand);
     expect(view.deckCount).toBe(s.deck.length);
     expect(view).not.toHaveProperty("deck");
   });
